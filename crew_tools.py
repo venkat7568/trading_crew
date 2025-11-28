@@ -507,19 +507,20 @@ def calculate_margin_tool(input_str: Any = None, **kw) -> str:
 @tool("Calculate Max Quantity")
 def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
     """
-    Compute the maximum affordable quantity given funds/leverage and optional risk.
+    Compute the maximum affordable quantity given available funds (delivery only, no leverage).
 
     Input:
       {
         "symbol": "HFCL" | null,
         "price": 406.2,        # required
-        "product": "I"|"D"="I",
+        "product": "D",        # always delivery
         "risk_pct": 0.5,       # optional % (used in fallback if broker doesn't support it)
         "stop_loss": 401.3,    # needed if risk_pct > 0
         "tick_size": 0.05
       }
 
     NOTE:
+    - NO LEVERAGE - always uses full capital (1x)
     - If UpstoxOperator.calculate_max_quantity exposes richer semantics,
       we introspect its signature and forward only supported params.
     """
@@ -531,7 +532,7 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("missing_or_invalid_price")
 
     symbol     = args.get("symbol")
-    product    = args.get("product", "I")
+    product    = "D"  # Always delivery
     risk_pct   = args.get("risk_pct", 0.0)
     stop_loss  = args.get("stop_loss")
     tick_size  = float(args.get("tick_size", os.environ.get("TICK_SIZE", 0.05)))
@@ -545,8 +546,8 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
 
     try:
         logger.info(
-            "calculate_max_quantity_tool called: symbol=%s price=%s product=%s risk_pct=%s stop_loss=%s",
-            symbol, price, product, risk_pct, stop_loss
+            "calculate_max_quantity_tool called: symbol=%s price=%s product=D risk_pct=%s stop_loss=%s",
+            symbol, price, risk_pct, stop_loss
         )
 
         funds = {}
@@ -563,7 +564,7 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
             forward = {}
             if "symbol" in sig.parameters: forward["symbol"] = symbol
             if "price" in sig.parameters: forward["price"] = price
-            if "product" in sig.parameters: forward["product"] = product
+            if "product" in sig.parameters: forward["product"] = "D"
             if "risk_pct" in sig.parameters and risk_pct: forward["risk_pct"] = risk_pct
             if "stop_loss" in sig.parameters and stop_loss is not None: forward["stop_loss"] = stop_loss
             if "tick_size" in sig.parameters: forward["tick_size"] = tick_size
@@ -577,8 +578,8 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
                 return _json_ok(**resp) if resp.get("ok", True) else _json_fail("calc_max_qty_failed", **resp)
             return _json_ok(result=resp)
 
-        # Fallback estimator
-        leverage = 3.0 if str(product).upper().startswith("I") else 1.0
+        # Fallback estimator - NO LEVERAGE
+        leverage = 1.0  # Always 1x for delivery
         gross_budget = max(0.0, available * leverage)
         max_qty_by_budget = int(math.floor(gross_budget / price)) if price > 0 else 0
 
@@ -590,15 +591,15 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
 
         qty = max(0, min(max_qty_by_budget, max_qty_by_risk)) if max_qty_by_risk is not None else max(0, max_qty_by_budget)
         logger.info(
-            "calculate_max_quantity_tool fallback: qty=%s available=%s leverage=%s",
-            qty, available, leverage
+            "calculate_max_quantity_tool fallback: qty=%s available=%s (no leverage)",
+            qty, available
         )
         return _json_ok(
             qty=qty,
             symbol=symbol,
             price=price,
-            product=product,
-            leverage_used=leverage,
+            product="D",
+            leverage_used=1.0,
             available_funds=round(available, 2),
             method="fallback",
             notes=("Risk sizing applied" if max_qty_by_risk is not None else "Budget-only sizing"),
@@ -611,14 +612,14 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
 @tool("Place Order")
 def place_order_tool(input_str: Any = None, **kw) -> str:
     """
-    Submit a broker order with a mandatory stop-loss policy (operator-enforced).
+    Submit a DELIVERY order with mandatory stop-loss (permanent monitoring).
 
     Input (dict | JSON | kwargs):
       {
         "symbol":"HFCL",
         "side":"BUY",
         "qty":50,
-        "product":"I",
+        "product":"D",          # Always delivery
         "order_type":"MARKET",
         "stop_loss_pct":1.0,     # or stop_loss absolute
         "target_pct":2.0,        # or target absolute (optional)
@@ -627,26 +628,22 @@ def place_order_tool(input_str: Any = None, **kw) -> str:
       }
 
     Underlying behavior (from UpstoxOperator.place_order):
-    - Places a single entry order (MARKET or LIMIT).
-    - Then places *two separate exit orders*:
-        • target (LIMIT)
-        • stop_loss (SL-M)
-      using the same product (I/D) as entry.
-    - Returns a dict like:
+    - Places a single DELIVERY entry order (MARKET or LIMIT).
+    - NO automatic exit orders - position_monitor watches for target/stop hits
+    - Returns computed stop_loss and target levels for monitoring:
         {
           "entry": {...},
-          "exits": {
-            "target": {...} | null,
-            "stop_loss": {...}
+          "monitoring": {
+            "stop_loss": ...,
+            "target": ...,
+            "note": "Levels monitored by position_monitor"
           },
-          "exit_status": "ok" | "partial" | "failed",
-          "computed_levels": {"stop_loss": ..., "target": ...},
-          "warnings": [...optional...]
+          "computed_levels": {"stop_loss": ..., "target": ...}
         }
 
     IMPORTANT:
-    - If UpstoxOperator returns {"error": ...}, we now return ok=false so
-      agents/UI can see that the order actually failed.
+    - Product is ALWAYS "D" (delivery) - no intraday leverage
+    - If UpstoxOperator returns {"error": ...}, we return ok=false
     """
     p = _coerce_args(input_str, **kw)
     if "order_type" not in p and "entry_type" in p:
@@ -677,75 +674,8 @@ def place_order_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("place_order_exception", detail=str(e))
 
 
-@tool("Place Intraday Bracket Order")
-def place_intraday_bracket_tool(input_str: Any = None, **kw) -> str:
-    """
-    Convenience wrapper for a typical *intraday bracket-style* order:
-
-    - Entry: MARKET, product="I"
-    - Exits: separate LIMIT target + SL-M stop-loss (created by UpstoxOperator)
-    - Stop-loss is MANDATORY (absolute or %); target is optional.
-
-    Input (dict | JSON | kwargs):
-      {
-        "symbol": "HFCL",
-        "side": "BUY",              # BUY or SELL
-        "qty": 1,                   # optional if auto_size=true (then broker may cap)
-        "stop_loss_pct": 0.5,       # OR "stop_loss": 75.4
-        "target_pct": 1.0,          # OR "target": 76.5 (optional)
-        "live": false,              # default false; MUST be true for real orders
-        "auto_size": false          # optional, passed through to operator
-      }
-
-    Returns:
-      {
-        "ok": true/false,
-        "order": { ... full UpstoxOperator.place_order result ... }
-      }
-    """
-    p = _coerce_args(input_str, **kw)
-
-    # Hard intraday + MARKET defaults
-    p.setdefault("product", "I")
-    p.setdefault("order_type", "MARKET")
-    p.setdefault("live", False)
-
-    # Validate side/symbol
-    symbol = (p.get("symbol") or "").strip()
-    side   = str(p.get("side", "BUY") or "BUY").upper()
-    if not symbol:
-        return _json_fail("missing_symbol", detail="symbol is required")
-    if side not in ("BUY", "SELL"):
-        return _json_fail("invalid_side", detail=f"side must be BUY/SELL, got {side}")
-
-    # Require SL (absolute or pct)
-    if not (p.get("stop_loss") or p.get("stop_loss_pct")):
-        return _json_fail(
-            "missing_stop_loss",
-            detail="Provide stop_loss or stop_loss_pct for bracket order."
-        )
-
-    logger.info(
-        "place_intraday_bracket_tool called: symbol=%s side=%s qty=%s product=%s live=%s "
-        "stop_loss=%s stop_loss_pct=%s target=%s target_pct=%s auto_size=%s",
-        symbol, side, p.get("qty"), p.get("product"), p.get("live"),
-        p.get("stop_loss"), p.get("stop_loss_pct"),
-        p.get("target"), p.get("target_pct"),
-        p.get("auto_size")
-    )
-
-    try:
-        res = OP.place_order(**p)
-
-        if isinstance(res, dict) and res.get("error"):
-            logger.error("place_intraday_bracket_tool: operator error response: %s", res)
-            return _json_fail("place_intraday_bracket_failed", **res)
-
-        logger.info("place_intraday_bracket_tool: success response: %s", res)
-        return _json_ok(order=res)
-    except Exception as e:
-        logger.exception("place_intraday_bracket_tool exception")
-        return _json_fail("place_intraday_bracket_exception", detail=str(e))
+# REMOVED: place_intraday_bracket_tool - No more intraday orders
+# All orders are delivery with permanent monitoring via position_monitor
 
 
 @tool("Square Off Position")
@@ -1015,7 +945,7 @@ ALL_TOOLS = [
     calculate_margin_tool,
     calculate_max_quantity_tool,
     place_order_tool,
-    place_intraday_bracket_tool,
+    # place_intraday_bracket_tool,  # REMOVED - delivery only now
     square_off_tool,
     calculate_trade_metrics_tool,
     get_current_time_tool,

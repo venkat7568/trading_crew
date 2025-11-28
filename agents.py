@@ -26,11 +26,15 @@ from langchain_openai import ChatOpenAI
 # LLM Factory (deterministic)
 # -----------------------------
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-# Use gpt-4o-mini (valid OpenAI model) - gpt-5-mini doesn't exist
+# NOTE: Using gpt-4o-mini (fast, cost-effective model)
+# User requested gpt-5-mini but it doesn't exist yet - gpt-4o-mini is the best alternative
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 # Agent verbosity (set via env var, default True for visibility)
 AGENT_VERBOSE = os.environ.get("AGENT_VERBOSE", "true").lower() in ("true", "1", "yes")
+
+# Minimum net profit threshold (after charges) to take a trade
+MIN_NET_PROFIT = float(os.environ.get("MIN_NET_PROFIT", "150.0"))
 
 
 def get_llm() -> ChatOpenAI:
@@ -58,7 +62,7 @@ You are a specialized member of an AI trading desk. Follow these rules strictly:
    • Technicals: get_technical_snapshot_tool
    • Operator/Broker: get_market_status_tool, get_funds_tool, get_positions_tool,
      get_holdings_tool, get_portfolio_summary_tool, calculate_margin_tool,
-     calculate_max_quantity_tool, place_order_tool, place_intraday_bracket_tool,
+     calculate_max_quantity_tool, place_order_tool (delivery only),
      square_off_tool
    • Utilities: calculate_trade_metrics_tool, get_current_time_tool,
      round_to_tick_tool, calculate_atr_stop_tool
@@ -256,53 +260,82 @@ OUTPUT
 
 def create_risk_agent(tools: List) -> Agent:
     """
-    Risk Management & Position Sizing
+    Risk Management & Position Sizing (DELIVERY ONLY)
     Output JSON:
     {
       "symbol": "ITC",
       "direction": "BUY|SELL",
-      "style": "intraday|swing",
-      "product": "I|D",
+      "style": "swing|short_term",
+      "product": "D",
       "entry": float,
       "stop_loss": float,
       "target": float | null,
       "risk_pct": float,
       "qty": int,
       "rr_ratio": float | null,
+      "expected_gross_profit": float,
+      "estimated_charges": float,
+      "expected_net_profit": float,
       "rationale": "text",
       "status": "ok" | "skip" | "error",
       "reason": str | null
     }
+
+    IMPORTANT: Validates expected_net_profit >= MIN_NET_PROFIT (default ₹150)
+    to ensure trades are profitable after broker charges.
     """
     backstory = f"""{SYSTEM_GUARDRAILS}
 
 ROLE
-- Convert a direction into a concrete, capital-efficient plan for intraday and swing.
+- Convert a direction into a concrete, capital-efficient plan.
 - Enforce minimum R:R and confidence thresholds.
 - CRITICAL: Return a FLAT JSON object with all required fields at the root level.
-- CRITICAL: Respect the style and set product correctly!
+- CRITICAL: ALL POSITIONS ARE DELIVERY (product="D") - NO INTRADAY LEVERAGE
 
 PROCESS (BUY; invert for SELL)
 1) get_funds_tool → available_margin (ACTUAL current available capital).
 2) Use provided ATR% to derive stop loss:
-   - Intraday: SL = entry × (1 - ATR% × 0.8 to 1.0) for BUY
+   - Short-term: SL = entry × (1 - ATR% × 0.8 to 1.2) for BUY
    - Swing: SL = entry × (1 - ATR% × 1.5 to 2.0) for BUY
    - Round via round_to_tick_tool
 3) risk_pct = 0.5% to 1.0% based on confidence (higher confidence = higher risk)
 4) calculate_max_quantity_tool with ACTUAL available_margin from step 1
 5) Calculate target for minimum R:R:
-   - Intraday: RR ≥ 1.2 (target = entry + (entry-stop) × 1.2)
+   - Short-term: RR ≥ 1.2 (target = entry + (entry-stop) × 1.2)
    - Swing: RR ≥ 1.5 (target = entry + (entry-stop) × 1.5)
 
-CRITICAL PRODUCT SELECTION (DO NOT FORCE INTRADAY!):
-- IF style="swing" → product MUST BE "D" (Delivery, 1x leverage, hold overnight)
-- IF style="intraday" → product="I" (Intraday, 3x leverage, square off by 3:20 PM)
-- NEVER set product="I" for swing trades!
+6) CRITICAL: CALCULATE CHARGES & VERIFY PROFIT
+   Call calculate_margin_tool to get estimated charges for this trade.
+   Upstox delivery charges (approximate):
+   - Flat ₹20 per order OR
+   - 0.05% of trade value (whichever is lower)
+   - Total both-way (entry + exit): ~₹40-60 typical
+
+   Expected gross profit = (target - entry) × qty
+   Estimated charges = Use calculate_margin_tool result OR estimate ₹40-60
+   Net profit = gross profit - charges
+
+   MINIMUM PROFIT RULE:
+   - If net_profit < ₹{MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges"}}
+   - Small trades are NOT worth it due to fixed ₹20 charge per order
+
+   Example: If qty=10, entry=100, target=105:
+   - Gross profit = (105-100) × 10 = ₹50
+   - Charges = ~₹40
+   - Net profit = ₹10 → SKIP (too small!)
+
+   Only proceed if net_profit ≥ ₹{MIN_NET_PROFIT:.0f}
+
+CRITICAL PRODUCT SELECTION:
+- ALWAYS use product="D" (Delivery, 1x leverage, permanent holding)
+- NO intraday product ("I") available - all trades are delivery
+- Position monitor watches for target/stop hits permanently (no EOD auto-square)
 
 REASONING:
-- Swing trades are multi-day positions → need Delivery (D)
-- Intraday trades are same-day only → use Intraday (I)
-- Using wrong product will auto-square swing trades = bad!
+- All trades use full capital (no leverage) with delivery product
+- Target and stop-loss are monitored permanently by position_monitor
+- Exits happen when levels are hit, not at end of day
+- Can hold overnight or multiple days until target/stop is reached
 
 CRITICAL OUTPUT FORMAT
 Return EXACTLY this structure (flat, no nesting):
@@ -321,14 +354,21 @@ Return EXACTLY this structure (flat, no nesting):
   "order_type": "MARKET",
   "risk_pct": 0.8,
   "rr_ratio": 1.8,
+  "expected_gross_profit": 487.50,
+  "estimated_charges": 45.00,
+  "expected_net_profit": 442.50,
   "rationale": "Brief explanation"
 }}
+
+PROFIT VALIDATION:
+- If expected_net_profit < {MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges","expected_net_profit":XX,"estimated_charges":YY}}
+- NEVER take trades with net profit < ₹{MIN_NET_PROFIT:.0f} (charges will eat the profit!)
 
 GUARDRAILS
 - If qty < 1 or RR below threshold → return {{"decision":"SKIP","reason":"..."}}
 - Do NOT nest the plan inside other keys like "final_choice" or "intraday"
 - Do NOT place orders (only the Executor does that)
-- VERIFY product matches style before returning!
+- ALWAYS set product="D" - no exceptions!
 """
     return Agent(
         role="Risk Management & Position Sizing",
@@ -350,71 +390,58 @@ GUARDRAILS
 
 def create_executor_agent(tools: List) -> Agent:
     """
-    Order Execution Specialist
-    Input: plan with symbol, direction, style, entry, stop_loss, target (opt), qty, product.
+    Order Execution Specialist (DELIVERY ONLY)
+    Input: plan with symbol, direction, style, entry, stop_loss, target (opt), qty, product="D".
     Output JSON:
     {
       "symbol": "ITC",
       "action": "placed" | "skipped" | "error",
       "order": {...} | null,
       "reason": str | null,
-      "followups": ["set_alerts","monitor_rr","trail_stop"] | []
+      "followups": ["monitor_target","monitor_stop"] | []
     }
     """
     backstory = f"""{SYSTEM_GUARDRAILS}
 
 ROLE
-- Place the order safely, only if market is open and inputs are valid.
-- CRITICAL: Use the correct tool based on product type!
+- Place DELIVERY orders only (no intraday).
+- Ensure market is open and inputs are valid.
+- CRITICAL: ALL orders are delivery with permanent monitoring!
 
 CHECKLIST
 1) get_market_status_tool → require open==true (unless explicitly dry-run).
 2) Validate qty ≥ 1 and stop_loss (or stop_loss_pct) present.
 3) For LIMIT/SL prices, use round_to_tick_tool if you need to adjust prices.
 
-EXECUTION BY PRODUCT TYPE:
-4a) For INTRADAY trades (product="I"):
-   - Use place_intraday_bracket_tool with:
-     {{
-       "symbol":"<SYMBOL>",
-       "side":"BUY|SELL",
-       "qty":<int>,
-       "product":"I",
-       "order_type":"MARKET",
-       "stop_loss":<float> OR "stop_loss_pct":<float>,
-       "target":<float>|null OR "target_pct":<float>|null,
-       "live": true,
-       "auto_size": false
-     }}
-   - This places: entry + LIMIT target + SL-M stop-loss
-
-4b) For SWING/DELIVERY trades (product="D"):
-   - Use place_order_tool with:
-     {{
-       "symbol":"<SYMBOL>",
-       "side":"BUY|SELL",
-       "qty":<int>,
-       "product":"D",
-       "order_type":"MARKET",
-       "stop_loss":<float> OR "stop_loss_pct":<float>,
-       "target":<float>|null OR "target_pct":<float>|null,
-       "live": true
-     }}
+EXECUTION (DELIVERY ONLY):
+4) Use place_order_tool with:
+   {{
+     "symbol":"<SYMBOL>",
+     "side":"BUY|SELL",
+     "qty":<int>,
+     "product":"D",
+     "order_type":"MARKET",
+     "stop_loss":<float> OR "stop_loss_pct":<float>,
+     "target":<float>|null OR "target_pct":<float>|null,
+     "live": true
+   }}
 
 IMPORTANT
+- ONLY delivery product ("D") - no intraday ("I") available
+- Stop-loss and target are returned for position_monitor (not placed as orders)
+- position_monitor will execute exits when levels are hit
 - Never bypass the stop-loss requirement; UpstoxOperator enforces it.
-- Use product from the plan - don't override!
 - If tools or operator return an error, set action="error" and include a short reason.
 """
     return Agent(
         role="Order Execution Specialist",
-        goal="Execute orders with mandatory stop-loss and clean confirmations.",
+        goal="Execute DELIVERY orders with mandatory stop-loss and permanent monitoring.",
         backstory=backstory,
         tools=_pick_tools(
             tools,
             "Check Market Status",
             "Place Order",
-            "Place Intraday Bracket Order",
+            # "Place Intraday Bracket Order",  # REMOVED - delivery only
             "Round to Tick Size",
         ),
         llm=get_llm(),
