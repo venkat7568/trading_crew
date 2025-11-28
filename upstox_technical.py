@@ -180,12 +180,16 @@ class InstrumentCache:
                     score += 15
             cands.append((score, r))
 
-        # India equities only
+        # India equities and indices
         filt = []
         for s, r in cands:
             ex = (r.get("exchange") or "").upper()
             seg = (r.get("segment") or "").upper()
-            if ex in {"NSE","BSE"} and ("EQ" in seg or r.get("instrument_key","").startswith(("NSE_EQ|","BSE_EQ|"))):
+            ik = r.get("instrument_key", "")
+            # Include: NSE/BSE equities OR NSE indices (for NIFTY, BANKNIFTY, etc.)
+            is_equity = ex in {"NSE","BSE"} and ("EQ" in seg or ik.startswith(("NSE_EQ|","BSE_EQ|")))
+            is_index = ex == "NSE" and ("INDEX" in seg or ik.startswith("NSE_INDEX|"))
+            if is_equity or is_index:
                 filt.append((s, r))
 
         seen = set(); out: List[Dict[str, Any]] = []
@@ -202,6 +206,18 @@ class InstrumentCache:
             return {"instrument_key": query, "symbol": None, "name": None}
         c = self.search(query, k=15)
         if not c: return None
+
+        # For index queries (NIFTY, BANKNIFTY, etc.), prioritize INDEX instruments
+        query_upper = query.upper()
+        is_index_query = any(idx in query_upper for idx in ["NIFTY", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"])
+
+        if is_index_query:
+            # Try INDEX first for index queries
+            for r in c:
+                if (r.get("instrument_key") or "").startswith("NSE_INDEX|"):
+                    return r
+
+        # Default priority: NSE_EQ, then BSE_EQ, then first result
         for r in c:
             if (r.get("instrument_key") or "").startswith("NSE_EQ|"):
                 return r
