@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-upstox_operator.py — Class-based trading ops (STOP-LOSS MANDATORY)
-==================================================================
+upstox_operator.py — Delivery-only trading with permanent monitoring
+=====================================================================
 
-Key guarantees:
-- ✅ Stop-loss is REQUIRED for every live order (Delivery & Intraday).
+Key features:
+- ✅ DELIVERY ORDERS ONLY - No intraday leverage (product always "D")
+- ✅ Stop-loss is REQUIRED for every live order.
   Provide either:
     • absolute: stop_loss=445.5
     • or percent: stop_loss_pct=0.5  (means 0.5%)
 - 🎯 Target is OPTIONAL (absolute or percent via target / target_pct).
 - 🧾 Entry can be MARKET or LIMIT (optional price).
-- 🔁 After entry, we place **two separate exit orders**:
-      - LIMIT target
-      - SL-M stop-loss
-  (No GTT API used, so no 404 / UDAPI100060.)
+- 📊 PERMANENT MONITORING: Target and stop-loss levels are returned for
+     position_monitor to watch. NO automatic exit orders placed.
+     Exits are executed by position_monitor when levels are hit.
+- 💰 NO LEVERAGE: All trades use full capital (1x), no intraday margin.
 
 Env (optional)
 - UPSTOX_API_BASE       (default https://api.upstox.com)
@@ -28,10 +29,9 @@ Env (optional)
 CLI examples:
   # Dry-run BUY with mandatory SL (0.5%) and optional target (1%)
   python upstox_operator.py --place --symbol ITC --side BUY --qty 1 \
-      --order-type MARKET --product I --stop-loss-pct 0.5 --target-pct 1
+      --order-type MARKET --product D --stop-loss-pct 0.5 --target-pct 1
 
-  # Live LIMIT SELL with absolute SL/target
-  python upstox_operator.py --place --symbol RELIANCE --side SELL --qty 2 \
+  # Live LIMIT SELL with absolute SL/target  python upstox_operator.py --place --symbol RELIANCE --side SELL --qty 2 \
       --order-type LIMIT --price 2515 --product D \
       --stop-loss 2540 --target 2465 --live
 """
@@ -502,7 +502,7 @@ class UpstoxOperator:
                     "instrument_key": instrument_key,
                     "quantity": int(qty),
                     "transaction_type": side.upper(),
-                    "product": product.upper(),
+                    "product": "D",  # Always delivery
                     "price": float(price),
                 }
             ]
@@ -520,22 +520,17 @@ class UpstoxOperator:
                     "stamp_duty": float(charges.get("stamp_duty", 0) or 0),
                     "total": float(charges.get("total", 0) or 0),
                 },
-                "product": product.upper(),
-                "leverage": 3.0 if product.upper() == "I" else 1.0,
+                "product": "D",
+                "leverage": 1.0,
                 "raw": data.get("data"),
             }
-        # fallback model
-        if product.upper() == "I":
-            req = price * qty * 0.20
-            lev = 3.0
-        else:
-            req = price * qty * 1.00
-            lev = 1.0
+        # fallback model - always delivery, no leverage
+        req = price * qty * 1.00
         return {
             "required_margin": req,
             "charges": {"total": req * 0.001},
-            "product": product.upper(),
-            "leverage": lev,
+            "product": "D",
+            "leverage": 1.0,
             "note": "estimated (margin API unavailable)",
         }
 
@@ -548,17 +543,14 @@ class UpstoxOperator:
         safety_buffer: float = 0.90,
     ) -> Dict[str, Any]:
         """
-        Simple margin-based sizing.
+        Simple margin-based sizing for delivery orders (no leverage).
 
         :param available_margin: equity.available_margin
         :return: dict with max_quantity, required_margin, remaining_margin, etc.
         """
         usable = max(0.0, available_margin) * max(0.0, min(1.0, safety_buffer))
-        if product.upper() == "I":
-            # 3x leverage for intraday (margin requirement ~33%)
-            max_qty = int(usable / (max(price, 0.01) * 0.33))
-        else:
-            max_qty = int(usable / max(price, 0.01))
+        # Always delivery, no leverage - full amount required
+        max_qty = int(usable / max(price, 0.01))
         if max_qty <= 0:
             return {
                 "max_quantity": 0,
@@ -566,17 +558,17 @@ class UpstoxOperator:
                 "remaining_margin": available_margin,
                 "error": "insufficient_funds",
             }
-        m = self.calculate_required_margin(symbol, max_qty, price, "BUY", product)
+        m = self.calculate_required_margin(symbol, max_qty, price, "BUY", "D")
         req = float(m.get("required_margin", 0) or 0)
         return {
             "max_quantity": max_qty,
             "required_margin": req,
             "remaining_margin": available_margin - req,
-            "product": product.upper(),
-            "leverage": m.get("leverage", 1.0),
+            "product": "D",
+            "leverage": 1.0,
         }
 
-    # --- Orders / exits (no GTT) ---
+    # --- Orders / exits (persistent monitoring) ---
     def place_order(
         self,
         symbol: str,
@@ -596,13 +588,12 @@ class UpstoxOperator:
         stop_loss_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
-        Place order with MANDATORY stop-loss (absolute or %). Target optional.
+        Place DELIVERY order with mandatory stop-loss. Target/stop monitored by position_monitor.
 
         Behaviour:
-        - Entry: /v2/order/place
-        - Exits: two separate DAY orders (opposite side):
-            • LIMIT @ target (if any)
-            • SL-M @ stop_loss (mandatory)
+        - Entry: /v2/order/place (delivery product only)
+        - NO automatic exit orders - position_monitor watches for target/stop hits
+        - Returns computed stop_loss and target levels for monitoring
         """
         blk = self._live_guard(live)
         if blk:
@@ -650,20 +641,20 @@ class UpstoxOperator:
             if qty <= 0:
                 return {"error": "insufficient_funds_for_order", "suggested_qty": cand}
 
-        # Build entry payload
+        # Build entry payload - ALWAYS delivery product
         payload = {
             "instrument_token": ik,
             "instrument_key": ik,
             "transaction_type": side.upper(),
             "quantity": int(qty),
             "order_type": order_type.upper(),
-            "product": product.upper(),
+            "product": "D",  # Always delivery, no intraday
             "validity": "DAY",
             "price": float(price or 0),
             "trigger_price": 0.0,
             "disclosed_quantity": 0,
             "is_amo": False,
-            "tag": tag or "operator",
+            "tag": tag or "delivery_monitored",
         }
 
         if not live:
@@ -692,98 +683,24 @@ class UpstoxOperator:
             "data": data.get("data"),
         }
 
-        # 2) Place exit orders (LIMIT target + SL-M stop)
-        exit_side = "SELL" if side.upper() == "BUY" else "BUY"
-        exits: Dict[str, Any] = {"target": None, "stop_loss": None}
-        warnings: List[str] = []
-
-        # Target (optional)
-        if tgt_px is not None:
-            tgt_payload = {
-                "instrument_token": ik,
-                "instrument_key": ik,
-                "transaction_type": exit_side,
-                "quantity": int(qty),
-                "order_type": "LIMIT",
-                "product": product.upper(),
-                "validity": "DAY",
-                "price": float(tgt_px),
-                "trigger_price": float(tgt_px),
-                "disclosed_quantity": 0,
-                "is_amo": False,
-                "tag": (tag or "operator") + "_TGT",
-            }
-            st_tgt, data_tgt = self._post("/v2/order/place", tgt_payload)
-            if st_tgt == 200 and isinstance(data_tgt, dict):
-                exits["target"] = {
-                    "status": "success",
-                    "order_id": (data_tgt.get("data") or {}).get("order_id"),
-                    "data": data_tgt.get("data"),
-                }
-            else:
-                warnings.append(f"Target order failed (http={st_tgt})")
-                exits["target"] = {
-                    "error": "target_failed",
-                    "status": st_tgt,
-                    "response": data_tgt,
-                    "request": tgt_payload,
-                }
-
-        # Stop-loss (mandatory)
-        if stop_px is not None:
-            sl_payload = {
-                "instrument_token": ik,
-                "instrument_key": ik,
-                "transaction_type": exit_side,
-                "quantity": int(qty),
-                "order_type": "SL-M",
-                "product": product.upper(),
-                "validity": "DAY",
-                "price": 0.0,
-                "trigger_price": float(stop_px),
-                "disclosed_quantity": 0,
-                "is_amo": False,
-                "tag": (tag or "operator") + "_SL",
-            }
-            st_sl, data_sl = self._post("/v2/order/place", sl_payload)
-            if st_sl == 200 and isinstance(data_sl, dict):
-                exits["stop_loss"] = {
-                    "status": "success",
-                    "order_id": (data_sl.get("data") or {}).get("order_id"),
-                    "data": data_sl.get("data"),
-                }
-            else:
-                warnings.append(f"Stop-loss order failed (http={st_sl})")
-                exits["stop_loss"] = {
-                    "error": "stop_failed",
-                    "status": st_sl,
-                    "response": data_sl,
-                    "request": sl_payload,
-                }
-        else:
-            warnings.append("Computed stop-loss is None; no SL-M exit order placed.")
-
-        # Exit status summary
-        if exits["stop_loss"] and (not isinstance(exits["stop_loss"], dict) or not exits["stop_loss"].get("error")):
-            exit_status = "ok"
-        else:
-            exit_status = "failed"
-
+        # NO exit orders placed - position_monitor will watch for target/stop hits
+        # Target and stop levels are returned for monitoring
         result: Dict[str, Any] = {
             "status": "success",
             "live": True,
             "symbol": row.get("symbol") or symbol,
             "side": side.upper(),
             "quantity": qty,
-            "product": product.upper(),
+            "product": "D",
             "entry": entry,
-            "exits": exits,
-            "exit_status": exit_status,
+            "monitoring": {
+                "stop_loss": stop_px,
+                "target": tgt_px,
+                "note": "Levels monitored by position_monitor - will execute when hit",
+            },
             "computed_levels": {"stop_loss": stop_px, "target": tgt_px},
             "timestamp": datetime.now(tz=self.IST).isoformat(),
         }
-        if warnings:
-            result["warnings"] = warnings
         return result
 
     def square_off(
@@ -793,8 +710,8 @@ class UpstoxOperator:
         live: bool = False,
     ) -> Dict[str, Any]:
         """
-        Simple square-off: MARKET order opposite to current position.
-        Does NOT touch any pending exits / SLs (you can manage from UI).
+        Square-off: MARKET order opposite to current position (delivery only).
+        Used by position_monitor when target or stop-loss is hit.
         """
         blk = self._live_guard(live)
         if blk:
@@ -837,13 +754,13 @@ class UpstoxOperator:
             "transaction_type": side,
             "quantity": abs(qty),
             "order_type": "MARKET",
-            "product": (position.get("product") or "I").upper(),
+            "product": "D",  # Always delivery
             "validity": "DAY",
             "price": 0.0,
             "trigger_price": 0.0,
             "disclosed_quantity": 0,
             "is_amo": False,
-            "tag": "square_off",
+            "tag": "square_off_monitored",
         }
 
         if not live:
@@ -896,7 +813,7 @@ def _cli():
     ap.add_argument("--qty", type=int, default=1)
     ap.add_argument("--price", type=float)
     ap.add_argument("--order-type", default="MARKET", choices=["MARKET", "LIMIT", "SL", "SL-M"])
-    ap.add_argument("--product", default="D", choices=["D", "I"])
+    ap.add_argument("--product", default="D", help="Product type (always D for delivery)")
 
     # target/SL absolute
     ap.add_argument("--target", type=float)

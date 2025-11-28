@@ -458,110 +458,9 @@ Return JSON only:
         self._emit_status("review_holdings_complete", {"actions": actions})
         return actions
 
-    # -------------------------------
-    # Intraday square-off (time-based)
-    # -------------------------------
-    def square_off_intraday_positions(self) -> List[Dict[str, Any]]:
-        """
-        Square off all intraday positions before market close (3:15 PM IST).
-        Call this method during the trading session if current time > 3:10 PM.
-        """
-        now = datetime.now(IST)
-        square_off_time = now.replace(hour=15, minute=10, second=0, microsecond=0)
-
-        # Only square off after 3:10 PM
-        if now < square_off_time:
-            return []
-
-        print(f"\n⏰ Time: {now.strftime('%H:%M:%S')} - Squaring off intraday positions...")
-        self._emit_status("intraday_square_off_start", {"time": now.isoformat()})
-
-        squared_positions = []
-
-        if not self.operator:
-            print("⚠️ Operator not available, cannot square off")
-            return []
-
-        try:
-            # Get current positions
-            pos_data = self.operator.get_positions(include_closed=False)
-            positions = pos_data.get("positions", [])
-
-            intraday_positions = [
-                p for p in positions
-                if p.get("product", "").upper() == "I" and int(p.get("quantity", 0) or 0) != 0
-            ]
-
-            if not intraday_positions:
-                print("✅ No intraday positions to square off")
-                return []
-
-            print(f"📊 Found {len(intraday_positions)} intraday position(s) to square off")
-
-            for pos in intraday_positions:
-                symbol = pos.get("tradingsymbol") or pos.get("symbol", "UNKNOWN")
-                instrument_key = pos.get("instrument_token") or pos.get("instrument_key")
-
-                try:
-                    print(f"🔄 Squaring off {symbol}...")
-                    result = self.operator.square_off(
-                        symbol=symbol,
-                        instrument_key=instrument_key,
-                        live=self.live,
-                    )
-
-                    square_record = {
-                        "symbol": symbol,
-                        "result": result,
-                        "time": now.isoformat(),
-                    }
-
-                    # Record exit in trade tracker if successful
-                    if self.tracker and result.get("status") == "ok":
-                        try:
-                            # Get last traded price from position or fetch current
-                            exit_price = float(pos.get("last_price") or 0)
-                            if exit_price == 0 and self.tech:
-                                px, _ = self.tech.ltp(instrument_key)
-                                exit_price = float(px) if px else 0
-
-                            if exit_price > 0:
-                                pnl_record = self.tracker.record_exit(
-                                    symbol=symbol,
-                                    exit_price=exit_price,
-                                    exit_reason="INTRADAY_AUTO_SQUARE_OFF",
-                                    order_id=result.get("order_id"),
-                                )
-                                square_record["pnl_record"] = pnl_record
-                                print(f"💰 P&L: {symbol} → ₹{pnl_record.get('net_pnl', 0):.2f} ({pnl_record.get('pnl_percent', 0):+.2f}%)")
-                        except Exception as e:
-                            print(f"⚠️ Error recording exit P&L for {symbol}: {e}")
-
-                    squared_positions.append(square_record)
-
-                    if result.get("status") == "ok":
-                        print(f"✅ {symbol} squared off successfully")
-                    else:
-                        print(f"⚠️ {symbol} square-off failed: {result.get('message', 'unknown')}")
-
-                except Exception as e:
-                    print(f"❌ Error squaring off {symbol}: {e}")
-                    squared_positions.append({
-                        "symbol": symbol,
-                        "error": str(e),
-                        "time": now.isoformat(),
-                    })
-
-            self._emit_status("intraday_square_off_complete", {
-                "count": len(squared_positions),
-                "results": squared_positions,
-            })
-
-        except Exception as e:
-            print(f"❌ Error during square-off: {e}")
-            self._emit_status("intraday_square_off_error", {"error": str(e)})
-
-        return squared_positions
+    # REMOVED: square_off_intraday_positions - No time-based square-off needed
+    # All positions are delivery with permanent monitoring via position_monitor
+    # Position monitor will square off when target or stop-loss is hit (permanent)
 
     # -------------------------------
     # Decision (news + tech + market context)
@@ -1297,8 +1196,7 @@ Return only JSON like:
                 print(f"   Total Capital: ₹{wallet_status.get('total_capital', 0):,.2f}")
                 print(f"   Available: ₹{wallet_status.get('available_capital', 0):,.2f}")
                 print(f"   Used: ₹{wallet_status.get('used_capital', 0):,.2f} ({wallet_status.get('capital_usage_pct', 0):.1f}%)")
-                print(f"   Intraday Allocation: ₹{wallet_status.get('intraday_allocation', 0):,.2f}")
-                print(f"   Swing Allocation: ₹{wallet_status.get('swing_allocation', 0):,.2f}")
+                print(f"   Product: Delivery only (no leverage)")
                 print(f"   Daily P&L: ₹{wallet_status.get('daily_pnl', 0):,.2f}")
                 print(f"   Daily Trades: {wallet_status.get('daily_trades', 0)}/{wallet_status.get('max_daily_trades', 0)}")
 
@@ -1378,10 +1276,7 @@ Return only JSON like:
         holdings_actions = self.review_holdings()
         cycle_results["holdings_review"] = holdings_actions
 
-        # Square off intraday positions if near market close (after 3:10 PM)
-        intraday_square_offs = self.square_off_intraday_positions()
-        if intraday_square_offs:
-            cycle_results["intraday_square_offs"] = intraday_square_offs
+        # NO time-based square-off needed - position_monitor handles all exits
 
         # ====================================================================================
         # NEW FLOW: 4-PHASE INTELLIGENT TRADING SYSTEM
@@ -1420,10 +1315,8 @@ Return only JSON like:
 
         max_positions = cycle_results["capital_tracking"]["max_positions"]
 
-        # Calculate product allocations
-        intraday_allocation = initial_capital * 0.4  # 40% intraday
-        swing_allocation = initial_capital * 0.6  # 60% swing
-        product_allocations = {"I": intraday_allocation, "D": swing_allocation}
+        # All positions are delivery (no intraday/swing split)
+        product_allocations = {"D": initial_capital}  # 100% delivery
 
         # Get current positions
         current_positions = []
@@ -1641,8 +1534,7 @@ Return only JSON like:
                 # Show position summary
                 pos_summary = self.position_monitor.get_position_summary()
                 if pos_summary.get("total_positions", 0) > 0:
-                    print(f"\n📊 Open Positions: {pos_summary.get('total_positions', 0)}")
-                    print(f"   Intraday: {pos_summary.get('intraday_count', 0)} | Swing: {pos_summary.get('swing_count', 0)}")
+                    print(f"\n📊 Open Positions: {pos_summary.get('total_positions', 0)} (all delivery)")
                     print(f"   Unrealized P&L: ₹{pos_summary.get('total_unrealized_pnl', 0):,.2f}")
 
             except Exception as e:
