@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>AI Trading System - Enhanced Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .card { background: white; border-radius: 15px; padding: 25px; margin-bottom: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+        h1 { font-size: 32px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px; }
+        h2 { font-size: 20px; color: #333; margin-bottom: 15px; }
+        h3 { font-size: 16px; color: #555; margin-bottom: 10px; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .grid-2 { display: grid; grid-template-columns: repeat(2, 1fr)); gap: 20px; margin-bottom: 20px; }
+        .metric { background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); padding: 20px; border-radius: 10px; text-align: center; }
+        .metric-label { font-size: 14px; color: #666; margin-bottom: 10px; }
+        .metric-value { font-size: 28px; font-weight: bold; color: #333; }
+        .metric-small { font-size: 12px; color: #999; margin-top: 8px; }
+        .status-badge { display: inline-block; padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 600; }
+        .status-open { background: #10b981; color: white; }
+        .status-closed { background: #ef4444; color: white; }
+        .status-running { background: #3b82f6; color: white; animation: pulse 2s infinite; }
+        .status-idle { background: #6b7280; color: white; }
+        .controls { display: flex; gap: 15px; margin-top: 20px; flex-wrap: wrap; }
+        .form-group { flex: 1; min-width: 200px; }
+        label { display: block; font-size: 14px; color: #666; margin-bottom: 8px; font-weight: 500; }
+        input, select { width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 14px; }
+        input:focus, select:focus { outline: none; border-color: #667eea; }
+        button { padding: 14px 28px; border: none; border-radius: 8px; font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.3s; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,0.15); }
+        button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+        .btn-success { background: linear-gradient(135deg, #10b981 0%, #059669 100%); color: white; }
+        .btn-danger { background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; }
+        .btn-primary { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .activity-feed { background: #f9fafb; border-radius: 10px; padding: 20px; max-height: 350px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 13px; }
+        .activity-item { padding: 12px; margin-bottom: 10px; border-radius: 6px; border-left: 4px solid #667eea; background: white; }
+        .activity-time { color: #999; font-size: 11px; }
+        .activity-text { color: #333; margin-top: 5px; }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.6; } }
+        .positive { color: #10b981; font-weight: 600; }
+        .negative { color: #ef4444; font-weight: 600; }
+        .neutral { color: #6b7280; }
+
+        /* Tables */
+        table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        th { background: #f3f4f6; padding: 12px 10px; text-align: left; font-weight: 600; color: #555; border-bottom: 2px solid #e5e7eb; }
+        td { padding: 12px 10px; border-bottom: 1px solid #e5e7eb; }
+        tr:hover { background: #f9fafb; }
+        .empty-state { text-align: center; padding: 40px; color: #999; font-size: 14px; }
+
+        /* Wallet Cards */
+        .wallet-card { background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); padding: 20px; border-radius: 10px; }
+        .wallet-type { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+        .wallet-amount { font-size: 32px; font-weight: bold; color: #333; margin-bottom: 10px; }
+        .wallet-details { font-size: 12px; color: #666; }
+        .wallet-detail-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
+
+        /* Company Cards */
+        .company-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 15px; max-height: 400px; overflow-y: auto; }
+        .company-card { background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%); padding: 15px; border-radius: 10px; text-align: center; border: 2px solid transparent; transition: all 0.3s; }
+        .company-card:hover { border-color: #667eea; transform: translateY(-2px); }
+        .company-symbol { font-weight: 600; font-size: 16px; color: #333; margin-bottom: 5px; }
+        .company-name { font-size: 11px; color: #666; margin-bottom: 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .company-status { font-size: 12px; padding: 4px 10px; border-radius: 12px; display: inline-block; }
+        .status-analyzing { background: #3b82f6; color: white; }
+        .status-buy { background: #10b981; color: white; }
+        .status-sell { background: #ef4444; color: white; }
+        .status-skip { background: #6b7280; color: white; }
+
+        /* Position Badge */
+        .position-badge { padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; }
+        .badge-buy { background: #10b98120; color: #059669; }
+        .badge-sell { background: #ef444420; color: #dc2626; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="card">
+            <h1>🤖 AI Trading System</h1>
+            <div style="color: #666;">Agent-Based Discovery • Multi-Signal Analysis • Risk Managed</div>
+        </div>
+
+        <!-- Top Metrics Row -->
+        <div class="grid">
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-label">Market Status</div>
+                    <span id="market-status" class="status-badge status-closed">Loading...</span>
+                    <div style="margin-top: 10px; font-size: 14px; color: #666;">
+                        <div id="market-time">--:--:--</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-label">Trading Status</div>
+                    <span id="trading-status" class="status-badge status-idle">Idle</span>
+                    <div class="metric-small" id="mode-display">Paper Trading</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-label">Open Positions</div>
+                    <div id="position-count" class="metric-value">0</div>
+                    <div class="metric-small">Active Trades</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="metric">
+                    <div class="metric-label">Today's P&L</div>
+                    <div id="daily-pnl" class="metric-value neutral">₹0</div>
+                    <div class="metric-small" id="win-rate">Win Rate: 0%</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Wallet Cards - Live vs Paper Money -->
+        <div class="grid-2">
+            <div class="card">
+                <h3>💰 Live Money (Real Trading)</h3>
+                <div class="wallet-card">
+                    <div class="wallet-type">Upstox Account</div>
+                    <div class="wallet-amount" id="live-balance">₹0</div>
+                    <div class="wallet-details">
+                        <div class="wallet-detail-row">
+                            <span>Available:</span>
+                            <span id="live-available">₹0</span>
+                        </div>
+                        <div class="wallet-detail-row">
+                            <span>Used:</span>
+                            <span id="live-used">₹0</span>
+                        </div>
+                        <div class="wallet-detail-row">
+                            <span>Today's P&L:</span>
+                            <span id="live-pnl" class="neutral">₹0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h3>📄 Paper Money (Simulated)</h3>
+                <div class="wallet-card">
+                    <div class="wallet-type">Backtest Capital</div>
+                    <div class="wallet-amount" id="paper-balance">₹100,000</div>
+                    <div class="wallet-details">
+                        <div class="wallet-detail-row">
+                            <span>Available:</span>
+                            <span id="paper-available">₹100,000</span>
+                        </div>
+                        <div class="wallet-detail-row">
+                            <span>Used:</span>
+                            <span id="paper-used">₹0</span>
+                        </div>
+                        <div class="wallet-detail-row">
+                            <span>Today's P&L:</span>
+                            <span id="paper-pnl" class="neutral">₹0</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Companies Being Analyzed -->
+        <div class="card">
+            <h2>📊 Companies Being Analyzed</h2>
+            <div id="companies-grid" class="company-grid">
+                <div class="empty-state">No companies being analyzed yet. Start trading to see real-time analysis.</div>
+            </div>
+        </div>
+
+        <!-- Open Positions Table -->
+        <div class="card">
+            <h2>📈 Open Positions</h2>
+            <div id="positions-container">
+                <div class="empty-state">No open positions</div>
+            </div>
+        </div>
+
+        <!-- Holdings Table -->
+        <div class="card">
+            <h2>🎯 Holdings</h2>
+            <div id="holdings-container">
+                <div class="empty-state">No holdings</div>
+            </div>
+        </div>
+
+        <!-- Trade History -->
+        <div class="card">
+            <h2>📜 Recent Trades</h2>
+            <div id="trades-container">
+                <div class="empty-state">No trades today</div>
+            </div>
+        </div>
+
+        <!-- Trading Controls -->
+        <div class="card">
+            <h2>⚙️ Trading Controls</h2>
+            <div class="controls">
+                <div class="form-group">
+                    <label>Mode</label>
+                    <select id="mode">
+                        <option value="live">Live Trading</option>
+                        <option value="backtest">Backtest</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="date-group" style="display: none;">
+                    <label>Backtest Date</label>
+                    <input type="date" id="backtest-date">
+                </div>
+
+                <div class="form-group">
+                    <label>Execute Orders</label>
+                    <select id="live-mode">
+                        <option value="false">Paper Trading (Safe)</option>
+                        <option value="true">Live Orders ⚠️</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label>Max Companies</label>
+                    <input type="number" id="max-symbols" min="5" max="50" value="20" placeholder="20">
+                    <div style="font-size: 11px; color: #666; margin-top: 5px;">Default: 20</div>
+                </div>
+
+                <div class="form-group">
+                    <label>Learning Mode 🧠</label>
+                    <select id="learning-mode">
+                        <option value="true">Enabled</option>
+                        <option value="false">Disabled</option>
+                    </select>
+                    <div style="font-size: 11px; color: #666; margin-top: 5px;">System improves from trades</div>
+                </div>
+            </div>
+
+            <div style="margin-top: 20px; display: flex; gap: 15px; flex-wrap: wrap;">
+                <button id="btn-start" class="btn-success" onclick="startTrading()">▶️ Start Auto Trading</button>
+                <button id="btn-stop" class="btn-danger" onclick="stopTrading()" disabled>⏹️ Stop</button>
+                <button class="btn-primary" onclick="refreshData()">🔄 Refresh</button>
+                <button class="btn-primary" onclick="runLearning()">🎓 Run Learning</button>
+            </div>
+        </div>
+
+        <!-- Activity Log -->
+        <div class="card">
+            <h2>📋 Activity Log</h2>
+            <div id="activity-feed" class="activity-feed">
+                <div class="activity-item">
+                    <div class="activity-time">UI loaded</div>
+                    <div class="activity-text">✅ Dashboard ready</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let eventSource = null;
+        let currentMode = 'backtest';
+        let isLive = false;
+
+        // Initialize
+        document.getElementById('mode').addEventListener('change', function() {
+            currentMode = this.value;
+            const dateGroup = document.getElementById('date-group');
+            dateGroup.style.display = currentMode === 'backtest' ? 'block' : 'none';
+        });
+
+        document.getElementById('live-mode').addEventListener('change', function() {
+            isLive = this.value === 'true';
+        });
+
+        document.getElementById('backtest-date').value = new Date().toISOString().split('T')[0];
+
+        function addActivity(text) {
+            const feed = document.getElementById('activity-feed');
+            const item = document.createElement('div');
+            item.className = 'activity-item';
+            const time = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+            item.innerHTML = '<div class="activity-time">' + time + '</div><div class="activity-text">' + text + '</div>';
+            feed.insertBefore(item, feed.firstChild);
+            while (feed.children.length > 30) { feed.removeChild(feed.lastChild); }
+        }
+
+        async function refreshData() {
+            try {
+                // Market status
+                const statusResp = await fetch('/status');
+                const statusData = await statusResp.json();
+
+                const marketStatus = document.getElementById('market-status');
+                if (statusData.market && statusData.market.open) {
+                    marketStatus.textContent = 'OPEN';
+                    marketStatus.className = 'status-badge status-open';
+                } else {
+                    marketStatus.textContent = 'CLOSED';
+                    marketStatus.className = 'status-badge status-closed';
+                }
+
+                document.getElementById('market-time').textContent = (statusData.market && statusData.market.time) || '--:--:--';
+
+                const tradingStatus = document.getElementById('trading-status');
+                if (statusData.trading_active) {
+                    tradingStatus.textContent = 'RUNNING';
+                    tradingStatus.className = 'status-badge status-running';
+                } else {
+                    tradingStatus.textContent = 'IDLE';
+                    tradingStatus.className = 'status-badge status-idle';
+                }
+
+                // Live money (from broker)
+                const funds = statusData.funds || {};
+                const liveAvailable = Number(funds.available_margin || 0);
+                const liveUsed = Number(funds.used_margin || 0);
+                const liveTotal = liveAvailable + liveUsed;
+
+                document.getElementById('live-balance').textContent = '₹' + liveTotal.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+                document.getElementById('live-available').textContent = '₹' + liveAvailable.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+                document.getElementById('live-used').textContent = '₹' + liveUsed.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+                // Fetch wallet data
+                const walletResp = await fetch('/wallet');
+                if (walletResp.ok) {
+                    const walletData = await walletResp.json();
+                    updateWallet(walletData);
+                }
+
+                // Fetch positions
+                const posResp = await fetch('/positions');
+                if (posResp.ok) {
+                    const posData = await posResp.json();
+                    updatePositions(posData);
+                }
+
+                // Fetch holdings
+                const holdResp = await fetch('/holdings');
+                if (holdResp.ok) {
+                    const holdData = await holdResp.json();
+                    updateHoldings(holdData);
+                }
+
+                // Fetch trades
+                const tradesResp = await fetch('/trades');
+                if (tradesResp.ok) {
+                    const tradesData = await tradesResp.json();
+                    updateTrades(tradesData);
+                }
+
+                // Fetch companies being analyzed
+                const compResp = await fetch('/companies');
+                if (compResp.ok) {
+                    const compData = await compResp.json();
+                    updateCompanies(compData);
+                }
+
+            } catch (error) {
+                console.error('Refresh error:', error);
+            }
+        }
+
+        function updateWallet(data) {
+            // Paper money
+            const paperBalance = data.total_capital || 100000;
+            const paperAvailable = data.available_capital || paperBalance;
+            const paperUsed = data.used_capital || 0;
+            const paperPnl = data.daily_pnl || 0;
+
+            document.getElementById('paper-balance').textContent = '₹' + paperBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+            document.getElementById('paper-available').textContent = '₹' + paperAvailable.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+            document.getElementById('paper-used').textContent = '₹' + paperUsed.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+
+            const paperPnlElem = document.getElementById('paper-pnl');
+            paperPnlElem.textContent = '₹' + paperPnl.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+            paperPnlElem.className = paperPnl > 0 ? 'positive' : paperPnl < 0 ? 'negative' : 'neutral';
+
+            // Daily P&L (top metric)
+            const dailyPnlElem = document.getElementById('daily-pnl');
+            const pnl = isLive ? 0 : paperPnl; // Use paper PNL for now
+            dailyPnlElem.textContent = '₹' + pnl.toLocaleString('en-IN', { maximumFractionDigits: 2 });
+            dailyPnlElem.className = 'metric-value ' + (pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : 'neutral');
+        }
+
+        function updatePositions(data) {
+            const positions = data.positions || [];
+            document.getElementById('position-count').textContent = positions.length;
+
+            const container = document.getElementById('positions-container');
+            if (positions.length === 0) {
+                container.innerHTML = '<div class="empty-state">No open positions</div>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>LTP</th><th>P&L</th><th>SL</th><th>Target</th></tr></thead><tbody>';
+
+            positions.forEach(pos => {
+                const pnl = pos.unrealized_pnl || 0;
+                const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : 'neutral';
+                const badgeClass = pos.side === 'BUY' ? 'badge-buy' : 'badge-sell';
+
+                html += `<tr>
+                    <td><strong>${pos.symbol}</strong></td>
+                    <td><span class="position-badge ${badgeClass}">${pos.side}</span></td>
+                    <td>${pos.quantity}</td>
+                    <td>₹${pos.entry_price.toFixed(2)}</td>
+                    <td>₹${(pos.ltp || pos.entry_price).toFixed(2)}</td>
+                    <td class="${pnlClass}">₹${pnl.toFixed(2)}</td>
+                    <td>₹${(pos.stop_loss || 0).toFixed(2)}</td>
+                    <td>₹${(pos.target || 0).toFixed(2)}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function updateHoldings(data) {
+            const holdings = data.holdings || [];
+            const container = document.getElementById('holdings-container');
+
+            if (holdings.length === 0) {
+                container.innerHTML = '<div class="empty-state">No holdings</div>';
+                return;
+            }
+
+            let html = '<table><thead><tr><th>Symbol</th><th>Qty</th><th>Avg Price</th><th>LTP</th><th>P&L</th><th>P&L %</th></tr></thead><tbody>';
+
+            holdings.forEach(hold => {
+                const pnl = hold.pnl || 0;
+                const pnlPct = hold.pnl_percent || 0;
+                const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : 'neutral';
+
+                html += `<tr>
+                    <td><strong>${hold.symbol}</strong></td>
+                    <td>${hold.quantity}</td>
+                    <td>₹${hold.average_price.toFixed(2)}</td>
+                    <td>₹${(hold.last_price || hold.average_price).toFixed(2)}</td>
+                    <td class="${pnlClass}">₹${pnl.toFixed(2)}</td>
+                    <td class="${pnlClass}">${pnlPct > 0 ? '+' : ''}${pnlPct.toFixed(2)}%</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function updateTrades(data) {
+            const trades = data.trades || [];
+            const container = document.getElementById('trades-container');
+
+            if (trades.length === 0) {
+                container.innerHTML = '<div class="empty-state">No trades today</div>';
+                return;
+            }
+
+            // Calculate win rate
+            const winners = trades.filter(t => t.net_pnl > 0).length;
+            const winRate = trades.length > 0 ? (winners / trades.length * 100).toFixed(1) : 0;
+            document.getElementById('win-rate').textContent = `Win Rate: ${winRate}%`;
+
+            let html = '<table><thead><tr><th>Symbol</th><th>Side</th><th>Qty</th><th>Entry</th><th>Exit</th><th>Exit Reason</th><th>P&L</th></tr></thead><tbody>';
+
+            trades.slice(0, 10).forEach(trade => {
+                const pnl = trade.net_pnl || 0;
+                const pnlClass = pnl > 0 ? 'positive' : pnl < 0 ? 'negative' : 'neutral';
+                const badgeClass = trade.side === 'BUY' ? 'badge-buy' : 'badge-sell';
+
+                html += `<tr>
+                    <td><strong>${trade.symbol}</strong></td>
+                    <td><span class="position-badge ${badgeClass}">${trade.side}</span></td>
+                    <td>${trade.quantity}</td>
+                    <td>₹${trade.entry_price.toFixed(2)}</td>
+                    <td>₹${(trade.exit_price || 0).toFixed(2)}</td>
+                    <td>${trade.exit_reason || '-'}</td>
+                    <td class="${pnlClass}">₹${pnl.toFixed(2)}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function updateCompanies(data) {
+            const companies = data.companies || [];
+            const container = document.getElementById('companies-grid');
+
+            if (companies.length === 0) {
+                container.innerHTML = '<div class="empty-state">No companies being analyzed yet</div>';
+                return;
+            }
+
+            let html = '';
+            companies.forEach(comp => {
+                const statusClass = comp.decision === 'BUY' ? 'status-buy' :
+                                  comp.decision === 'SELL' ? 'status-sell' :
+                                  comp.decision === 'SKIP' ? 'status-skip' : 'status-analyzing';
+
+                html += `<div class="company-card">
+                    <div class="company-symbol">${comp.symbol}</div>
+                    <div class="company-name" title="${comp.name || comp.symbol}">${comp.name || comp.symbol}</div>
+                    <span class="company-status ${statusClass}">${comp.decision || 'Analyzing...'}</span>
+                </div>`;
+            });
+
+            container.innerHTML = html;
+        }
+
+        async function startTrading() {
+            const mode = document.getElementById('mode').value;
+            const date = document.getElementById('backtest-date').value;
+            const live = document.getElementById('live-mode').value === 'true';
+            const maxSymbols = parseInt(document.getElementById('max-symbols').value) || 20;
+            const learningMode = document.getElementById('learning-mode').value === 'true';
+
+            if (live && !confirm('⚠️ WARNING: Live trading will use REAL MONEY! Continue?')) return;
+
+            document.getElementById('btn-start').disabled = true;
+            document.getElementById('btn-stop').disabled = false;
+
+            currentMode = mode;
+            isLive = live;
+
+            document.getElementById('mode-display').textContent = (mode === 'live' ? 'Live' : 'Backtest') + ' - ' + (live ? 'Real Money ⚠️' : 'Paper');
+
+            addActivity('🚀 Starting... Mode: ' + mode + ', Live: ' + (live ? 'YES ⚠️' : 'Paper'));
+            addActivity('📊 Max symbols: ' + maxSymbols + ', Learning: ' + (learningMode ? 'ON 🧠' : 'OFF'));
+
+            try {
+                const resp = await fetch('/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ mode, date, live, max_symbols: maxSymbols, learning_mode: learningMode })
+                });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    addActivity('✅ Trading started successfully');
+                } else {
+                    addActivity('❌ Error: ' + (result.message || 'Unknown'));
+                    document.getElementById('btn-start').disabled = false;
+                    document.getElementById('btn-stop').disabled = true;
+                }
+            } catch (error) {
+                addActivity('❌ Failed: ' + error);
+                document.getElementById('btn-start').disabled = false;
+                document.getElementById('btn-stop').disabled = true;
+            }
+        }
+
+        async function stopTrading() {
+            try {
+                await fetch('/stop', { method: 'POST' });
+                addActivity('⏹️ Trading stopped');
+                document.getElementById('btn-start').disabled = false;
+                document.getElementById('btn-stop').disabled = true;
+            } catch (error) {
+                addActivity('❌ Failed to stop: ' + error);
+            }
+        }
+
+        async function runLearning() {
+            addActivity('🎓 Running learning analysis...');
+            try {
+                const resp = await fetch('/learning', { method: 'POST' });
+                const result = await resp.json();
+                if (result.status === 'ok') {
+                    addActivity('✅ Learning analysis complete!');
+                    if (result.insights) {
+                        addActivity('📊 Insights: ' + result.insights);
+                    }
+                } else {
+                    addActivity('❌ Learning error: ' + (result.message || 'Unknown'));
+                }
+            } catch (error) {
+                addActivity('❌ Failed to run learning: ' + error);
+            }
+        }
+
+        function connectSSE() {
+            if (eventSource) eventSource.close();
+            eventSource = new EventSource('/stream');
+            eventSource.onmessage = function(e) {
+                try {
+                    const payload = JSON.parse(e.data);
+                    if (payload.event !== 'heartbeat' && payload.message) {
+                        addActivity(payload.message);
+                    }
+                } catch (err) {}
+            };
+            eventSource.onerror = function() {
+                setTimeout(connectSSE, 5000);
+            };
+        }
+
+        // Auto-refresh
+        setInterval(refreshData, 3000);
+        setInterval(() => {
+            const time = new Date().toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' });
+            document.getElementById('market-time').textContent = time;
+        }, 1000);
+
+        connectSSE();
+        refreshData();
+    </script>
+</body>
+</html>
