@@ -33,6 +33,9 @@ OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 # Agent verbosity (set via env var, default True for visibility)
 AGENT_VERBOSE = os.environ.get("AGENT_VERBOSE", "true").lower() in ("true", "1", "yes")
 
+# Minimum net profit threshold (after charges) to take a trade
+MIN_NET_PROFIT = float(os.environ.get("MIN_NET_PROFIT", "150.0"))
+
 
 def get_llm() -> ChatOpenAI:
     """Return a configured, low-temperature OpenAI chat model."""
@@ -270,10 +273,16 @@ def create_risk_agent(tools: List) -> Agent:
       "risk_pct": float,
       "qty": int,
       "rr_ratio": float | null,
+      "expected_gross_profit": float,
+      "estimated_charges": float,
+      "expected_net_profit": float,
       "rationale": "text",
       "status": "ok" | "skip" | "error",
       "reason": str | null
     }
+
+    IMPORTANT: Validates expected_net_profit >= MIN_NET_PROFIT (default ₹150)
+    to ensure trades are profitable after broker charges.
     """
     backstory = f"""{SYSTEM_GUARDRAILS}
 
@@ -294,6 +303,28 @@ PROCESS (BUY; invert for SELL)
 5) Calculate target for minimum R:R:
    - Short-term: RR ≥ 1.2 (target = entry + (entry-stop) × 1.2)
    - Swing: RR ≥ 1.5 (target = entry + (entry-stop) × 1.5)
+
+6) CRITICAL: CALCULATE CHARGES & VERIFY PROFIT
+   Call calculate_margin_tool to get estimated charges for this trade.
+   Upstox delivery charges (approximate):
+   - Flat ₹20 per order OR
+   - 0.05% of trade value (whichever is lower)
+   - Total both-way (entry + exit): ~₹40-60 typical
+
+   Expected gross profit = (target - entry) × qty
+   Estimated charges = Use calculate_margin_tool result OR estimate ₹40-60
+   Net profit = gross profit - charges
+
+   MINIMUM PROFIT RULE:
+   - If net_profit < ₹{MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges"}}
+   - Small trades are NOT worth it due to fixed ₹20 charge per order
+
+   Example: If qty=10, entry=100, target=105:
+   - Gross profit = (105-100) × 10 = ₹50
+   - Charges = ~₹40
+   - Net profit = ₹10 → SKIP (too small!)
+
+   Only proceed if net_profit ≥ ₹{MIN_NET_PROFIT:.0f}
 
 CRITICAL PRODUCT SELECTION:
 - ALWAYS use product="D" (Delivery, 1x leverage, permanent holding)
@@ -323,8 +354,15 @@ Return EXACTLY this structure (flat, no nesting):
   "order_type": "MARKET",
   "risk_pct": 0.8,
   "rr_ratio": 1.8,
+  "expected_gross_profit": 487.50,
+  "estimated_charges": 45.00,
+  "expected_net_profit": 442.50,
   "rationale": "Brief explanation"
 }}
+
+PROFIT VALIDATION:
+- If expected_net_profit < {MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges","expected_net_profit":XX,"estimated_charges":YY}}
+- NEVER take trades with net profit < ₹{MIN_NET_PROFIT:.0f} (charges will eat the profit!)
 
 GUARDRAILS
 - If qty < 1 or RR below threshold → return {{"decision":"SKIP","reason":"..."}}
