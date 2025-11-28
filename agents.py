@@ -276,13 +276,18 @@ def create_risk_agent(tools: List) -> Agent:
       "expected_gross_profit": float,
       "estimated_charges": float,
       "expected_net_profit": float,
+      "available_funds": float,         # MANDATORY - proves get_funds_tool was called
+      "capital_required": float,        # MANDATORY - qty × entry
+      "capital_remaining": float,       # MANDATORY - available_funds - capital_required
       "rationale": "text",
       "status": "ok" | "skip" | "error",
       "reason": str | null
     }
 
-    IMPORTANT: Validates expected_net_profit >= MIN_NET_PROFIT (default ₹150)
-    to ensure trades are profitable after broker charges.
+    CRITICAL VALIDATIONS:
+    1. Validates capital_required <= available_funds (prevents over-sizing)
+    2. Validates expected_net_profit >= MIN_NET_PROFIT (default ₹150)
+    3. MUST call get_funds_tool and calculate_max_quantity_tool
     """
     backstory = f"""{SYSTEM_GUARDRAILS}
 
@@ -293,38 +298,68 @@ ROLE
 - CRITICAL: ALL POSITIONS ARE DELIVERY (product="D") - NO INTRADAY LEVERAGE
 
 PROCESS (BUY; invert for SELL)
-1) get_funds_tool → available_margin (ACTUAL current available capital).
-2) Use provided ATR% to derive stop loss:
-   - Short-term: SL = entry × (1 - ATR% × 0.8 to 1.2) for BUY
-   - Swing: SL = entry × (1 - ATR% × 1.5 to 2.0) for BUY
-   - Round via round_to_tick_tool
-3) risk_pct = 0.5% to 1.0% based on confidence (higher confidence = higher risk)
-4) calculate_max_quantity_tool with ACTUAL available_margin from step 1
-5) Calculate target for minimum R:R:
-   - Short-term: RR ≥ 1.2 (target = entry + (entry-stop) × 1.2)
-   - Swing: RR ≥ 1.5 (target = entry + (entry-stop) × 1.5)
+STEP 1 - MANDATORY FUND CHECK (DO NOT SKIP!):
+  Call get_funds_tool() FIRST - NO parameters needed
+  Extract available_margin from response (equity.available_margin)
+  Example: {{"ok": true, "equity": {{"available_margin": 26548.39}}}}
+  Store this value - you MUST use it in step 4!
 
-6) CRITICAL: CALCULATE CHARGES & VERIFY PROFIT
-   Call calculate_margin_tool to get estimated charges for this trade.
-   Upstox delivery charges (approximate):
-   - Flat ₹20 per order OR
-   - 0.05% of trade value (whichever is lower)
-   - Total both-way (entry + exit): ~₹40-60 typical
+STEP 2 - Calculate stop loss:
+  Use provided ATR% to derive stop loss:
+  - Short-term: SL = entry × (1 - ATR% × 0.8 to 1.2) for BUY
+  - Swing: SL = entry × (1 - ATR% × 1.5 to 2.0) for BUY
+  - Round via round_to_tick_tool
 
-   Expected gross profit = (target - entry) × qty
-   Estimated charges = Use calculate_margin_tool result OR estimate ₹40-60
-   Net profit = gross profit - charges
+STEP 3 - Set risk percentage:
+  risk_pct = 0.5% to 1.0% based on confidence (higher confidence = higher risk)
 
-   MINIMUM PROFIT RULE:
-   - If net_profit < ₹{MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges"}}
-   - Small trades are NOT worth it due to fixed ₹20 charge per order
+STEP 4 - MANDATORY QUANTITY CALCULATION (DO NOT SKIP!):
+  Call calculate_max_quantity_tool with:
+  {{
+    "symbol": "<SYMBOL>",
+    "price": <entry_price>,
+    "product": "D",
+    "risk_pct": <risk_pct from step 3>,
+    "stop_loss": <stop_loss from step 2>
+  }}
+  This tool will:
+  - Fetch available funds automatically
+  - Calculate max affordable qty (price × qty ≤ available_margin)
+  - Apply risk sizing if stop_loss provided
+  - Return: {{"qty": <max_affordable>, "available_funds": <amount>}}
 
-   Example: If qty=10, entry=100, target=105:
-   - Gross profit = (105-100) × 10 = ₹50
-   - Charges = ~₹40
-   - Net profit = ₹10 → SKIP (too small!)
+  USE THE QTY FROM THIS TOOL! DO NOT calculate qty yourself!
 
-   Only proceed if net_profit ≥ ₹{MIN_NET_PROFIT:.0f}
+STEP 5 - Calculate target:
+  - Short-term: RR ≥ 1.2 (target = entry + (entry-stop) × 1.2)
+  - Swing: RR ≥ 1.5 (target = entry + (entry-stop) × 1.5)
+
+STEP 6 - CALCULATE CHARGES & VERIFY PROFIT:
+  Call calculate_margin_tool to get estimated charges for this trade.
+  Upstox delivery charges (approximate):
+  - Flat ₹20 per order OR
+  - 0.05% of trade value (whichever is lower)
+  - Total both-way (entry + exit): ~₹40-60 typical
+
+  Expected gross profit = (target - entry) × qty
+  Estimated charges = Use calculate_margin_tool result OR estimate ₹40-60
+  Net profit = gross profit - charges
+
+  MINIMUM PROFIT RULE:
+  - If net_profit < ₹{MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges"}}
+  - Small trades are NOT worth it due to fixed ₹20 charge per order
+
+  Example: If qty=10, entry=100, target=105:
+  - Gross profit = (105-100) × 10 = ₹50
+  - Charges = ~₹40
+  - Net profit = ₹10 → SKIP (too small!)
+
+  Only proceed if net_profit ≥ ₹{MIN_NET_PROFIT:.0f}
+
+STEP 7 - CAPITAL VALIDATION:
+  Verify: qty × entry ≤ available_margin (from step 1)
+  If qty × entry > available_margin:
+    return {{"decision":"SKIP","reason":"insufficient_capital","required":qty×entry,"available":available_margin}}
 
 CRITICAL PRODUCT SELECTION:
 - ALWAYS use product="D" (Delivery, 1x leverage, permanent holding)
@@ -357,17 +392,33 @@ Return EXACTLY this structure (flat, no nesting):
   "expected_gross_profit": 487.50,
   "estimated_charges": 45.00,
   "expected_net_profit": 442.50,
+  "available_funds": 26548.39,
+  "capital_required": 22512.50,
+  "capital_remaining": 4035.89,
   "rationale": "Brief explanation"
 }}
+
+MANDATORY FIELDS (must be present):
+- available_funds: MUST match get_funds_tool result (proves you called it!)
+- capital_required: qty × entry (total amount needed)
+- capital_remaining: available_funds - capital_required (must be > 0!)
+
+If capital_required > available_funds: return {{"decision":"SKIP","reason":"insufficient_capital"}}
 
 PROFIT VALIDATION:
 - If expected_net_profit < {MIN_NET_PROFIT:.0f} → return {{"decision":"SKIP","reason":"insufficient_profit_after_charges","expected_net_profit":XX,"estimated_charges":YY}}
 - NEVER take trades with net profit < ₹{MIN_NET_PROFIT:.0f} (charges will eat the profit!)
 
 GUARDRAILS
+- MANDATORY: Call get_funds_tool FIRST to get available_funds
+- MANDATORY: Call calculate_max_quantity_tool to get max affordable qty
+- MANDATORY: Verify capital_required (qty × entry) ≤ available_funds
+- MANDATORY: Include available_funds, capital_required, capital_remaining in output
 - If qty < 1 or RR below threshold → return {{"decision":"SKIP","reason":"..."}}
+- If capital_required > available_funds → return {{"decision":"SKIP","reason":"insufficient_capital"}}
 - Do NOT nest the plan inside other keys like "final_choice" or "intraday"
 - Do NOT place orders (only the Executor does that)
+- Do NOT calculate qty yourself - ALWAYS use calculate_max_quantity_tool result!
 - ALWAYS set product="D" - no exceptions!
 """
     return Agent(
