@@ -28,6 +28,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from crewai.tools import tool
+from pydantic import BaseModel, Field
 
 # ---- hard imports (as requested) ----
 from news_client import NewsClient
@@ -212,10 +213,142 @@ def _round_to_tick(px: float, tick: float) -> float:
 
 
 # ---------------------------------------------------------------------------
+# Pydantic Input Models (Explicit schemas to resolve ForwardRef issues)
+# ---------------------------------------------------------------------------
+class GetRecentNewsInput(BaseModel):
+    """Input schema for get_recent_news_tool"""
+    lookback_days: int = Field(default=2, description="Days to look back for news")
+    max_items: int = Field(default=20, description="Maximum items to return")
+    mode: str = Field(default="live", description="Mode: live or test")
+    today: Optional[str] = Field(default=None, description="Date override YYYY-MM-DD")
+    compact: bool = Field(default=True, description="Return compact format")
+
+
+class SearchNewsInput(BaseModel):
+    """Input schema for search_news_tool"""
+    query: str = Field(..., description="Search query (required)")
+    lookback_days: int = Field(default=7, description="Days to look back")
+    max_results: int = Field(default=25, description="Maximum results to return")
+    mode: str = Field(default="live", description="Mode: live or test")
+    compact: bool = Field(default=True, description="Return compact format")
+    domain: Optional[str] = Field(default=None, description="Filter by domain")
+    offset: Optional[int] = Field(default=None, description="Result offset")
+
+
+class GetTechnicalSnapshotInput(BaseModel):
+    """Input schema for get_technical_snapshot_tool"""
+    symbol: str = Field(..., description="NSE symbol (required)")
+    days: int = Field(default=7, description="Days of historical data")
+
+
+class GetMarketStatusInput(BaseModel):
+    """Input schema for get_market_status_tool (no params needed)"""
+    pass
+
+
+class GetFundsInput(BaseModel):
+    """Input schema for get_funds_tool (no params needed)"""
+    pass
+
+
+class GetPositionsInput(BaseModel):
+    """Input schema for get_positions_tool"""
+    include_closed: bool = Field(default=False, description="Include closed positions")
+
+
+class GetHoldingsInput(BaseModel):
+    """Input schema for get_holdings_tool (no params needed)"""
+    pass
+
+
+class GetPortfolioSummaryInput(BaseModel):
+    """Input schema for get_portfolio_summary_tool (no params needed)"""
+    pass
+
+
+class CalculateMarginInput(BaseModel):
+    """Input schema for calculate_margin_tool"""
+    symbol: str = Field(..., description="Trading symbol")
+    qty: int = Field(..., description="Quantity")
+    side: str = Field(..., description="BUY or SELL")
+    product: str = Field(default="D", description="Product type (D=delivery)")
+    price: float = Field(..., description="Price per share")
+
+
+class CalculateMaxQuantityInput(BaseModel):
+    """Input schema for calculate_max_quantity_tool"""
+    symbol: Optional[str] = Field(default=None, description="Trading symbol")
+    price: float = Field(..., description="Price per share (required)")
+    product: str = Field(default="D", description="Product type (D=delivery)")
+    risk_pct: float = Field(default=0.0, description="Risk percentage")
+    stop_loss: Optional[float] = Field(default=None, description="Stop loss price")
+    tick_size: float = Field(default=0.05, description="Tick size")
+
+
+class PlaceOrderInput(BaseModel):
+    """Input schema for place_order_tool"""
+    symbol: str = Field(..., description="Trading symbol")
+    side: str = Field(..., description="BUY or SELL")
+    qty: int = Field(..., description="Quantity")
+    product: str = Field(default="D", description="Product type (D=delivery)")
+    order_type: str = Field(default="MARKET", description="MARKET or LIMIT")
+    stop_loss_pct: Optional[float] = Field(default=None, description="Stop loss percentage")
+    stop_loss: Optional[float] = Field(default=None, description="Absolute stop loss price")
+    target_pct: Optional[float] = Field(default=None, description="Target percentage")
+    target: Optional[float] = Field(default=None, description="Absolute target price")
+    live: bool = Field(default=False, description="Execute live order (required=True)")
+    auto_size: bool = Field(default=False, description="Auto-size quantity")
+
+
+class SquareOffInput(BaseModel):
+    """Input schema for square_off_tool"""
+    symbol: str = Field(..., description="Trading symbol")
+    live: bool = Field(default=False, description="Execute live square-off")
+    instrument_key: Optional[str] = Field(default=None, description="Instrument key if available")
+
+
+class CalculateTradeMetricsInput(BaseModel):
+    """Input schema for calculate_trade_metrics_tool"""
+    side: str = Field(..., description="BUY or SELL")
+    entry: float = Field(..., description="Entry price")
+    qty: int = Field(..., description="Quantity")
+    stop_loss: Optional[float] = Field(default=None, description="Absolute stop loss")
+    stop_loss_pct: Optional[float] = Field(default=None, description="Stop loss percentage")
+    atr: Optional[float] = Field(default=None, description="ATR value")
+    atr_mult: Optional[float] = Field(default=None, description="ATR multiplier")
+    target: Optional[float] = Field(default=None, description="Target price")
+    target_rr: Optional[float] = Field(default=None, description="Target R:R ratio")
+    fees_total: float = Field(default=0.0, description="Total fees")
+
+
+class GetCurrentTimeInput(BaseModel):
+    """Input schema for get_current_time_tool (no params needed)"""
+    pass
+
+
+class RoundToTickInput(BaseModel):
+    """Input schema for round_to_tick_tool"""
+    price: float = Field(..., description="Price to round")
+    tick_size: float = Field(default=0.05, description="Tick size")
+
+
+class CalculateATRStopInput(BaseModel):
+    """Input schema for calculate_atr_stop_tool"""
+    symbol: Optional[str] = Field(default=None, description="Trading symbol")
+    entry: Optional[float] = Field(default=None, description="Entry price")
+    atr: Optional[float] = Field(default=None, description="ATR value")
+    atr_pct: Optional[float] = Field(default=None, description="ATR percentage")
+    k: float = Field(default=1.0, description="ATR multiplier")
+    side: str = Field(default="BUY", description="BUY or SELL")
+    tick_size: Optional[float] = Field(default=None, description="Tick size")
+    days: int = Field(default=7, description="Days for snapshot if inferring")
+
+
+# ---------------------------------------------------------------------------
 # NEWS
 # ---------------------------------------------------------------------------
-@tool("Get Recent News and Broker Calls")
-def get_recent_news_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Recent News and Broker Calls", args_schema=GetRecentNewsInput)
+def get_recent_news_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Quickly fetch *fresh, India-focused* market news & broker calls.
 
@@ -278,8 +411,8 @@ def get_recent_news_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("news_tool_error", detail=str(e))
 
 
-@tool("Search News by Query")
-def search_news_tool(input_str: Any = None, **kw) -> str:
+@tool("Search News by Query", args_schema=SearchNewsInput)
+def search_news_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Targeted news search to investigate a specific symbol, event, or theme.
 
@@ -350,8 +483,8 @@ def search_news_tool(input_str: Any = None, **kw) -> str:
 # ---------------------------------------------------------------------------
 # TECHNICALS
 # ---------------------------------------------------------------------------
-@tool("Get Technical Snapshot")
-def get_technical_snapshot_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Technical Snapshot", args_schema=GetTechnicalSnapshotInput)
+def get_technical_snapshot_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Pull a compact technical view for a single NSE cash symbol.
 
@@ -397,8 +530,8 @@ def get_technical_snapshot_tool(input_str: Any = None, **kw) -> str:
 # ---------------------------------------------------------------------------
 # OPERATOR / BROKER
 # ---------------------------------------------------------------------------
-@tool("Check Market Status")
-def get_market_status_tool(input_str: Any = None, **kw) -> str:
+@tool("Check Market Status", args_schema=GetMarketStatusInput)
+def get_market_status_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Returns the current NSE market session state to gate trading actions.
     Input: none (or {})
@@ -412,8 +545,8 @@ def get_market_status_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("market_status_failed", detail=str(e))
 
 
-@tool("Get Account Funds")
-def get_funds_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Account Funds", args_schema=GetFundsInput)
+def get_funds_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Fetch available/used margin to size trades and enforce risk budgets.
     Input: none (or {})
@@ -430,8 +563,8 @@ def get_funds_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("funds_failed", detail=str(e))
 
 
-@tool("Get Current Positions")
-def get_positions_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Current Positions", args_schema=GetPositionsInput)
+def get_positions_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Retrieve current positions.
     Input: { "include_closed": false }
@@ -448,8 +581,8 @@ def get_positions_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("positions_failed", detail=str(e))
 
 
-@tool("Get Holdings")
-def get_holdings_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Holdings", args_schema=GetHoldingsInput)
+def get_holdings_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Fetch delivery holdings for swing management and mark-to-market.
     """
@@ -463,8 +596,8 @@ def get_holdings_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("holdings_failed", detail=str(e))
 
 
-@tool("Get Portfolio Summary")
-def get_portfolio_summary_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Portfolio Summary", args_schema=GetPortfolioSummaryInput)
+def get_portfolio_summary_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     One-call overview for funds, positions, and holdings.
     """
@@ -483,8 +616,8 @@ def get_portfolio_summary_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("portfolio_summary_failed", detail=str(e))
 
 
-@tool("Calculate Required Margin")
-def calculate_margin_tool(input_str: Any = None, **kw) -> str:
+@tool("Calculate Required Margin", args_schema=CalculateMarginInput)
+def calculate_margin_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Estimate broker-required margin for a prospective order.
     Input: {"symbol": "...", "qty": 10, "side": "BUY", "product": "I", "price": 123.45}
@@ -504,8 +637,8 @@ def calculate_margin_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("calc_margin_failed", detail=str(e))
 
 
-@tool("Calculate Max Quantity")
-def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
+@tool("Calculate Max Quantity", args_schema=CalculateMaxQuantityInput)
+def calculate_max_quantity_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Compute the maximum affordable quantity given available funds (delivery only, no leverage).
 
@@ -609,8 +742,8 @@ def calculate_max_quantity_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("calc_max_qty_exception", detail=str(e))
 
 
-@tool("Place Order")
-def place_order_tool(input_str: Any = None, **kw) -> str:
+@tool("Place Order", args_schema=PlaceOrderInput)
+def place_order_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Submit a DELIVERY order with mandatory stop-loss (permanent monitoring).
 
@@ -678,8 +811,8 @@ def place_order_tool(input_str: Any = None, **kw) -> str:
 # All orders are delivery with permanent monitoring via position_monitor
 
 
-@tool("Square Off Position")
-def square_off_tool(input_str: Any = None, **kw) -> str:
+@tool("Square Off Position", args_schema=SquareOffInput)
+def square_off_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Close open position in the symbol and clean related GTTs (per operator).
 
@@ -708,8 +841,8 @@ def square_off_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("square_off_failed", detail=str(e))
 
 
-@tool("Calculate Trade Metrics")
-def calculate_trade_metrics_tool(input_str: Any = None, **kw) -> str:
+@tool("Calculate Trade Metrics", args_schema=CalculateTradeMetricsInput)
+def calculate_trade_metrics_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Fast, deterministic risk math for agent decisions and logs.
 
@@ -808,8 +941,8 @@ def calculate_trade_metrics_tool(input_str: Any = None, **kw) -> str:
 # ---------------------------------------------------------------------------
 # UTILITIES
 # ---------------------------------------------------------------------------
-@tool("Get Current IST Time")
-def get_current_time_tool(input_str: Any = None, **kw) -> str:
+@tool("Get Current IST Time", args_schema=GetCurrentTimeInput)
+def get_current_time_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Provide a stable IST clock source for time-based decisions and logging.
     """
@@ -818,8 +951,8 @@ def get_current_time_tool(input_str: Any = None, **kw) -> str:
     return _json_ok(now_ist=now.isoformat(), date=now.date().isoformat(), time=now.time().isoformat())
 
 
-@tool("Round to Tick Size")
-def round_to_tick_tool(input_str: Any = None, **kw) -> str:
+@tool("Round to Tick Size", args_schema=RoundToTickInput)
+def round_to_tick_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Normalize any price to exchange/broker tick size for valid order placement.
     Input: { "price": 406.23, "tick_size": 0.05 }
@@ -840,8 +973,8 @@ def round_to_tick_tool(input_str: Any = None, **kw) -> str:
         return _json_fail("round_failed", detail=str(e))
 
 
-@tool("Calculate ATR Stop Loss")
-def calculate_atr_stop_tool(input_str: Any = None, **kw) -> str:
+@tool("Calculate ATR Stop Loss", args_schema=CalculateATRStopInput)
+def calculate_atr_stop_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Convert a %ATR rule into an absolute stop (robust: can infer entry/ATR from symbol).
 
@@ -928,6 +1061,27 @@ def calculate_atr_stop_tool(input_str: Any = None, **kw) -> str:
     except Exception as e:
         logger.exception("calculate_atr_stop_tool exception")
         return _json_fail("atr_failed", detail=str(e))
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL: Rebuild all Pydantic models to resolve ForwardRef('Any') issues
+# ---------------------------------------------------------------------------
+GetRecentNewsInput.model_rebuild()
+SearchNewsInput.model_rebuild()
+GetTechnicalSnapshotInput.model_rebuild()
+GetMarketStatusInput.model_rebuild()
+GetFundsInput.model_rebuild()
+GetPositionsInput.model_rebuild()
+GetHoldingsInput.model_rebuild()
+GetPortfolioSummaryInput.model_rebuild()
+CalculateMarginInput.model_rebuild()
+CalculateMaxQuantityInput.model_rebuild()
+PlaceOrderInput.model_rebuild()
+SquareOffInput.model_rebuild()
+CalculateTradeMetricsInput.model_rebuild()
+GetCurrentTimeInput.model_rebuild()
+RoundToTickInput.model_rebuild()
+CalculateATRStopInput.model_rebuild()
 
 
 # ---------------------------------------------------------------------------
