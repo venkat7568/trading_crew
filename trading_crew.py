@@ -219,9 +219,10 @@ class TradingCrew:
             self.opportunity_ranker = None
 
         # Initialize portfolio risk manager
+        # Increased to 80% for small capital accounts - with delivery + stop-loss, sector concentration is acceptable
         try:
-            self.portfolio_risk = PortfolioRiskManager(max_sector_concentration=40.0)
-            print("✅ Portfolio risk manager initialized")
+            self.portfolio_risk = PortfolioRiskManager(max_sector_concentration=80.0)
+            print("✅ Portfolio risk manager initialized (max sector: 80%)")
         except Exception as e:
             print(f"⚠️ Portfolio risk manager init failed: {e}")
             self.portfolio_risk = None
