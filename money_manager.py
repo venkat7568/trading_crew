@@ -76,11 +76,8 @@ class MoneyManager:
             except Exception as e:
                 logger.error(f"Error loading config: {e}")
 
-        # Default configuration
+        # Default configuration (DOES NOT include total_capital - always fetch from broker)
         return {
-            # Capital allocation
-            "total_capital": 100000.0,  # Total capital in account
-
             # Position limits
             "max_positions": 5,  # Max open positions at once
 
@@ -161,22 +158,33 @@ class MoneyManager:
         """
         self._reset_daily_state_if_needed()
 
-        # Get account balance from broker
+        # Get account balance from broker (REQUIRED - no fallback)
         available_capital = 0.0
         used_capital = 0.0
 
-        if self.operator:
-            try:
-                funds = self.operator.get_funds()
-                equity = funds.get("equity", {})
-                available_capital = float(equity.get("available_margin", 0) or 0)
-                used_capital = float(equity.get("used_margin", 0) or 0)
-            except Exception as e:
-                logger.error(f"Error fetching funds: {e}")
-                # Fallback to config
-                available_capital = self.config["total_capital"]
+        if not self.operator:
+            logger.error("No operator configured - cannot fetch funds!")
+            raise RuntimeError("MoneyManager requires UpstoxOperator to fetch real funds")
+
+        try:
+            funds = self.operator.get_funds()
+            equity = funds.get("equity", {})
+            available_capital = float(equity.get("available_margin", 0) or 0)
+            used_capital = float(equity.get("used_margin", 0) or 0)
+
+            if available_capital <= 0:
+                logger.error(f"Invalid available_capital from broker: {available_capital}")
+                raise ValueError("Available capital must be > 0")
+
+        except Exception as e:
+            logger.error(f"Error fetching funds from broker: {e}")
+            raise RuntimeError(f"Failed to fetch real funds from Upstox: {e}")
 
         total_capital = available_capital + used_capital
+
+        if total_capital <= 0:
+            logger.error(f"Invalid total_capital: {total_capital}")
+            raise ValueError("Total capital must be > 0")
 
         # Calculate usage
         capital_usage_pct = (used_capital / total_capital * 100) if total_capital > 0 else 0
