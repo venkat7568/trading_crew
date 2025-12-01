@@ -347,7 +347,7 @@ class CalculateATRStopInput(BaseModel):
 # ---------------------------------------------------------------------------
 # NEWS
 # ---------------------------------------------------------------------------
-@tool("Get Recent News and Broker Calls", args_schema=GetRecentNewsInput)
+@tool("Get Recent News and Broker Calls")
 def get_recent_news_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Quickly fetch *fresh, India-focused* market news & broker calls.
@@ -411,7 +411,7 @@ def get_recent_news_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("news_tool_error", detail=str(e))
 
 
-@tool("Search News by Query", args_schema=SearchNewsInput)
+@tool("Search News by Query")
 def search_news_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Targeted news search to investigate a specific symbol, event, or theme.
@@ -483,7 +483,7 @@ def search_news_tool(input_str: Optional[str] = None, **kw) -> str:
 # ---------------------------------------------------------------------------
 # TECHNICALS
 # ---------------------------------------------------------------------------
-@tool("Get Technical Snapshot", args_schema=GetTechnicalSnapshotInput)
+@tool("Get Technical Snapshot")
 def get_technical_snapshot_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Pull a compact technical view for a single NSE cash symbol.
@@ -530,7 +530,7 @@ def get_technical_snapshot_tool(input_str: Optional[str] = None, **kw) -> str:
 # ---------------------------------------------------------------------------
 # OPERATOR / BROKER
 # ---------------------------------------------------------------------------
-@tool("Check Market Status", args_schema=GetMarketStatusInput)
+@tool("Check Market Status")
 def get_market_status_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Returns the current NSE market session state to gate trading actions.
@@ -545,7 +545,7 @@ def get_market_status_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("market_status_failed", detail=str(e))
 
 
-@tool("Get Account Funds", args_schema=GetFundsInput)
+@tool("Get Account Funds")
 def get_funds_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Fetch available/used margin to size trades and enforce risk budgets.
@@ -563,7 +563,7 @@ def get_funds_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("funds_failed", detail=str(e))
 
 
-@tool("Get Current Positions", args_schema=GetPositionsInput)
+@tool("Get Current Positions")
 def get_positions_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Retrieve current positions.
@@ -581,7 +581,7 @@ def get_positions_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("positions_failed", detail=str(e))
 
 
-@tool("Get Holdings", args_schema=GetHoldingsInput)
+@tool("Get Holdings")
 def get_holdings_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Fetch delivery holdings for swing management and mark-to-market.
@@ -596,7 +596,7 @@ def get_holdings_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("holdings_failed", detail=str(e))
 
 
-@tool("Get Portfolio Summary", args_schema=GetPortfolioSummaryInput)
+@tool("Get Portfolio Summary")
 def get_portfolio_summary_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     One-call overview for funds, positions, and holdings.
@@ -616,7 +616,7 @@ def get_portfolio_summary_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("portfolio_summary_failed", detail=str(e))
 
 
-@tool("Calculate Required Margin", args_schema=CalculateMarginInput)
+@tool("Calculate Required Margin")
 def calculate_margin_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Estimate broker-required margin for a prospective order.
@@ -637,7 +637,7 @@ def calculate_margin_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("calc_margin_failed", detail=str(e))
 
 
-@tool("Calculate Max Quantity", args_schema=CalculateMaxQuantityInput)
+@tool("Calculate Max Quantity")
 def calculate_max_quantity_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Compute the maximum affordable quantity given available funds (delivery only, no leverage).
@@ -742,7 +742,7 @@ def calculate_max_quantity_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("calc_max_qty_exception", detail=str(e))
 
 
-@tool("Place Order", args_schema=PlaceOrderInput)
+@tool("Place Order")
 def place_order_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Submit a DELIVERY order with mandatory stop-loss (permanent monitoring).
@@ -811,7 +811,7 @@ def place_order_tool(input_str: Optional[str] = None, **kw) -> str:
 # All orders are delivery with permanent monitoring via position_monitor
 
 
-@tool("Square Off Position", args_schema=SquareOffInput)
+@tool("Square Off Position")
 def square_off_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Close open position in the symbol and clean related GTTs (per operator).
@@ -841,7 +841,7 @@ def square_off_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("square_off_failed", detail=str(e))
 
 
-@tool("Calculate Trade Metrics", args_schema=CalculateTradeMetricsInput)
+@tool("Calculate Trade Metrics")
 def calculate_trade_metrics_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Fast, deterministic risk math for agent decisions and logs.
@@ -941,7 +941,7 @@ def calculate_trade_metrics_tool(input_str: Optional[str] = None, **kw) -> str:
 # ---------------------------------------------------------------------------
 # UTILITIES
 # ---------------------------------------------------------------------------
-@tool("Get Current IST Time", args_schema=GetCurrentTimeInput)
+@tool("Get Current IST Time")
 def get_current_time_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Provide a stable IST clock source for time-based decisions and logging.
@@ -951,7 +951,7 @@ def get_current_time_tool(input_str: Optional[str] = None, **kw) -> str:
     return _json_ok(now_ist=now.isoformat(), date=now.date().isoformat(), time=now.time().isoformat())
 
 
-@tool("Round to Tick Size", args_schema=RoundToTickInput)
+@tool("Round to Tick Size")
 def round_to_tick_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Normalize any price to exchange/broker tick size for valid order placement.
@@ -973,7 +973,7 @@ def round_to_tick_tool(input_str: Optional[str] = None, **kw) -> str:
         return _json_fail("round_failed", detail=str(e))
 
 
-@tool("Calculate ATR Stop Loss", args_schema=CalculateATRStopInput)
+@tool("Calculate ATR Stop Loss")
 def calculate_atr_stop_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     Convert a %ATR rule into an absolute stop (robust: can infer entry/ATR from symbol).
