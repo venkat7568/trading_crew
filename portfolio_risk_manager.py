@@ -58,7 +58,7 @@ class PortfolioRiskManager:
         self,
         selected_opportunities: List[Dict[str, Any]],
         current_positions: Optional[List[Dict[str, Any]]] = None,
-        total_capital: float = 100000.0,
+        total_capital: Optional[float] = None,
     ) -> Dict[str, Any]:
         """
         Validate portfolio-level risk for selected opportunities.
@@ -66,7 +66,7 @@ class PortfolioRiskManager:
         Args:
             selected_opportunities: Opportunities ranked and selected
             current_positions: Currently open positions
-            total_capital: Total trading capital
+            total_capital: Total trading capital (REQUIRED - must pass real capital from broker)
 
         Returns:
             {
@@ -77,6 +77,8 @@ class PortfolioRiskManager:
                 "recommendations": [...]
             }
         """
+        if total_capital is None or total_capital <= 0:
+            raise ValueError("total_capital is required and must be > 0. Pass real capital from broker!")
         current_positions = current_positions or []
 
         warnings = []
