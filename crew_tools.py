@@ -348,7 +348,7 @@ class CalculateATRStopInput(BaseModel):
 # NEWS
 # ---------------------------------------------------------------------------
 @tool("Get Recent News and Broker Calls")
-def get_recent_news_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_recent_news_tool(input_str = None, **kw) -> str:
     """
     Quickly fetch *fresh, India-focused* market news & broker calls.
 
@@ -412,7 +412,7 @@ def get_recent_news_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Search News by Query")
-def search_news_tool(input_str: Optional[str] = None, **kw) -> str:
+def search_news_tool(input_str = None, **kw) -> str:
     """
     Targeted news search to investigate a specific symbol, event, or theme.
 
@@ -484,7 +484,7 @@ def search_news_tool(input_str: Optional[str] = None, **kw) -> str:
 # TECHNICALS
 # ---------------------------------------------------------------------------
 @tool("Get Technical Snapshot")
-def get_technical_snapshot_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_technical_snapshot_tool(input_str = None, **kw) -> str:
     """
     Pull a compact technical view for a single NSE cash symbol.
 
@@ -531,7 +531,7 @@ def get_technical_snapshot_tool(input_str: Optional[str] = None, **kw) -> str:
 # OPERATOR / BROKER
 # ---------------------------------------------------------------------------
 @tool("Check Market Status")
-def get_market_status_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_market_status_tool(input_str = None, **kw) -> str:
     """
     Returns the current NSE market session state to gate trading actions.
     Input: none (or {})
@@ -546,7 +546,7 @@ def get_market_status_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Get Account Funds")
-def get_funds_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_funds_tool(input_str = None, **kw) -> str:
     """
     Fetch available/used margin to size trades and enforce risk budgets.
     Input: none (or {})
@@ -564,7 +564,7 @@ def get_funds_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Get Current Positions")
-def get_positions_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_positions_tool(input_str = None, **kw) -> str:
     """
     Retrieve current positions.
     Input: { "include_closed": false }
@@ -582,7 +582,7 @@ def get_positions_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Get Holdings")
-def get_holdings_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_holdings_tool(input_str = None, **kw) -> str:
     """
     Fetch delivery holdings for swing management and mark-to-market.
     """
@@ -597,7 +597,7 @@ def get_holdings_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Get Portfolio Summary")
-def get_portfolio_summary_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_portfolio_summary_tool(input_str = None, **kw) -> str:
     """
     One-call overview for funds, positions, and holdings.
     """
@@ -617,7 +617,7 @@ def get_portfolio_summary_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Calculate Required Margin")
-def calculate_margin_tool(input_str: Optional[str] = None, **kw) -> str:
+def calculate_margin_tool(input_str = None, **kw) -> str:
     """
     Estimate broker-required margin for a prospective order.
     Input: {"symbol": "...", "qty": 10, "side": "BUY", "product": "I", "price": 123.45}
@@ -638,7 +638,7 @@ def calculate_margin_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Calculate Max Quantity")
-def calculate_max_quantity_tool(input_str: Optional[str] = None, **kw) -> str:
+def calculate_max_quantity_tool(input_str = None, **kw) -> str:
     """
     Compute the maximum affordable quantity given available funds (delivery only, no leverage).
 
@@ -743,7 +743,7 @@ def calculate_max_quantity_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Place Order")
-def place_order_tool(input_str: Optional[str] = None, **kw) -> str:
+def place_order_tool(input_str = None, **kw) -> str:
     """
     Submit a DELIVERY order with mandatory stop-loss (permanent monitoring).
 
@@ -812,7 +812,7 @@ def place_order_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Square Off Position")
-def square_off_tool(input_str: Optional[str] = None, **kw) -> str:
+def square_off_tool(input_str = None, **kw) -> str:
     """
     Close open position in the symbol and clean related GTTs (per operator).
 
@@ -842,7 +842,7 @@ def square_off_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Calculate Trade Metrics")
-def calculate_trade_metrics_tool(input_str: Optional[str] = None, **kw) -> str:
+def calculate_trade_metrics_tool(input_str = None, **kw) -> str:
     """
     Fast, deterministic risk math for agent decisions and logs.
 
@@ -942,7 +942,7 @@ def calculate_trade_metrics_tool(input_str: Optional[str] = None, **kw) -> str:
 # UTILITIES
 # ---------------------------------------------------------------------------
 @tool("Get Current IST Time")
-def get_current_time_tool(input_str: Optional[str] = None, **kw) -> str:
+def get_current_time_tool(input_str = None, **kw) -> str:
     """
     Provide a stable IST clock source for time-based decisions and logging.
     """
@@ -952,7 +952,7 @@ def get_current_time_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Round to Tick Size")
-def round_to_tick_tool(input_str: Optional[str] = None, **kw) -> str:
+def round_to_tick_tool(input_str = None, **kw) -> str:
     """
     Normalize any price to exchange/broker tick size for valid order placement.
     Input: { "price": 406.23, "tick_size": 0.05 }
@@ -974,7 +974,7 @@ def round_to_tick_tool(input_str: Optional[str] = None, **kw) -> str:
 
 
 @tool("Calculate ATR Stop Loss")
-def calculate_atr_stop_tool(input_str: Optional[str] = None, **kw) -> str:
+def calculate_atr_stop_tool(input_str = None, **kw) -> str:
     """
     Convert a %ATR rule into an absolute stop (robust: can infer entry/ATR from symbol).
 
