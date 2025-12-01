@@ -72,7 +72,7 @@ class OpportunityRanker:
             decisions: List of decision dicts from decide_trade()
             available_capital: Total available capital
             max_positions: Maximum number of positions allowed
-            product_allocations: {"I": intraday_allocation, "D": swing_allocation}
+            product_allocations: Deprecated, not used anymore
             current_positions: Currently open positions (for diversification)
 
         Returns:
@@ -83,13 +83,6 @@ class OpportunityRanker:
             }
         """
         logger.info(f"🎯 Ranking {len(decisions)} opportunities...")
-
-        # Default allocations (50-50 split)
-        if product_allocations is None:
-            product_allocations = {
-                "I": available_capital * 0.5,
-                "D": available_capital * 0.5,
-            }
 
         current_positions = current_positions or []
 
@@ -141,11 +134,10 @@ class OpportunityRanker:
         scored_opportunities.sort(key=lambda x: x["composite_score"], reverse=True)
 
         # Select top opportunities within constraints
-        selected, rejected, used_capital, usage_by_product = self._select_within_constraints(
+        selected, rejected, used_capital = self._select_within_constraints(
             scored_opportunities=scored_opportunities,
             available_capital=available_capital,
             max_positions=max_positions,
-            product_allocations=product_allocations,
             current_positions=current_positions,
         )
 
@@ -162,7 +154,6 @@ class OpportunityRanker:
                 "rejected": len(rejected),
                 "capital_used": used_capital,
                 "capital_available": available_capital,
-                "product_usage": usage_by_product,
                 "timestamp": datetime.now(IST).isoformat(),
             },
         }
@@ -329,44 +320,33 @@ class OpportunityRanker:
         """
         Estimate capital required for this trade.
 
-        Rough estimation based on style and confidence.
+        Uses confidence to estimate position size.
         Actual sizing happens in risk agent, but this helps with ranking.
         """
-        # Try to extract from decision raw data
-        try:
-            raw_str = decision.get("raw", "{}")
-            if isinstance(raw_str, str) and "{" in raw_str:
-                import json
-                raw_obj = json.loads(raw_str)
-                style = raw_obj.get("style", "intraday")
-            else:
-                style = "intraday"
-        except Exception:
-            style = "intraday"
+        confidence = float(decision.get("confidence", 0.5))
 
-        # Rough estimates (will be refined by risk agent)
-        if style == "swing":
-            return 15000.0  # Swing trades typically larger
-        else:
-            return 8000.0  # Intraday smaller positions
+        # Rough estimate based on confidence
+        # Higher confidence = willing to allocate more capital
+        base_capital = 10000.0  # Base allocation
+        confidence_multiplier = 0.5 + (confidence * 1.5)  # 0.5x to 2x based on confidence
+
+        return base_capital * confidence_multiplier
 
     def _select_within_constraints(
         self,
         scored_opportunities: List[Dict[str, Any]],
         available_capital: float,
         max_positions: int,
-        product_allocations: Dict[str, float],
         current_positions: List[Dict[str, Any]],
-    ) -> Tuple[List[Dict], List[Dict], float, Dict[str, float]]:
+    ) -> Tuple[List[Dict], List[Dict], float]:
         """
         Select opportunities that fit within capital and position constraints.
 
-        Returns: (selected, rejected, total_capital_used, usage_by_product)
+        Returns: (selected, rejected, total_capital_used)
         """
         selected = []
         rejected = []
         used_capital = 0.0
-        usage_by_product = {"I": 0.0, "D": 0.0}
 
         # Track sectors for diversification
         selected_sectors = set()
@@ -380,23 +360,8 @@ class OpportunityRanker:
                 rejected.append(opp)
                 continue
 
-            # Determine product type
-            style = opp.get("style", "intraday")
-            product = "I" if style == "intraday" else "D"
-
-            # Check product-specific allocation
-            estimated_capital = opp["estimated_capital"]
-            product_limit = product_allocations.get(product, available_capital / 2)
-
-            if usage_by_product[product] + estimated_capital > product_limit:
-                logger.debug(
-                    f"   {opp['symbol']}: Rejected (exceeds {product} allocation: "
-                    f"₹{usage_by_product[product] + estimated_capital:.0f} > ₹{product_limit:.0f})"
-                )
-                rejected.append(opp)
-                continue
-
             # Check total capital
+            estimated_capital = opp["estimated_capital"]
             if used_capital + estimated_capital > available_capital:
                 logger.debug(
                     f"   {opp['symbol']}: Rejected (exceeds total capital: "
@@ -412,16 +377,15 @@ class OpportunityRanker:
             # Accept opportunity
             selected.append(opp)
             used_capital += estimated_capital
-            usage_by_product[product] += estimated_capital
             selected_sectors.add(symbol_sector)
 
             logger.debug(
                 f"   ✅ {opp['symbol']}: score={opp['composite_score']:.3f}, "
                 f"conf={opp['confidence']:.2f}, R:R={opp['rr_ratio']:.1f}, "
-                f"product={product}, capital=₹{estimated_capital:.0f}"
+                f"capital=₹{estimated_capital:.0f}"
             )
 
-        return selected, rejected, used_capital, usage_by_product
+        return selected, rejected, used_capital
 
 
 # Singleton accessor
