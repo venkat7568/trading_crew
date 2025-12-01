@@ -218,10 +218,10 @@ class TradingCrew:
             print(f"⚠️ Opportunity ranker init failed: {e}")
             self.opportunity_ranker = None
 
-        # Initialize portfolio risk manager
+        # Initialize portfolio risk manager (sector concentration disabled)
         try:
-            self.portfolio_risk = PortfolioRiskManager(max_sector_concentration=40.0)
-            print("✅ Portfolio risk manager initialized")
+            self.portfolio_risk = PortfolioRiskManager(max_sector_concentration=100.0)
+            print("✅ Portfolio risk manager initialized (sector limits disabled)")
         except Exception as e:
             print(f"⚠️ Portfolio risk manager init failed: {e}")
             self.portfolio_risk = None
