@@ -1315,9 +1315,6 @@ Return only JSON like:
 
         max_positions = cycle_results["capital_tracking"]["max_positions"]
 
-        # All positions are delivery (no intraday/swing split)
-        product_allocations = {"D": initial_capital}  # 100% delivery
-
         # Get current positions
         current_positions = []
         if self.operator:
@@ -1333,7 +1330,6 @@ Return only JSON like:
                 decisions=all_decisions,
                 available_capital=initial_capital,
                 max_positions=max_positions,
-                product_allocations=product_allocations,
                 current_positions=current_positions,
             )
 
@@ -1348,8 +1344,7 @@ Return only JSON like:
                 print(
                     f"   {i}. {opp['symbol']:12} | {opp['direction']:4} | "
                     f"Score: {opp['composite_score']:.3f} | Conf: {opp['confidence']:.2f} | "
-                    f"R:R: {opp['rr_ratio']:.1f} | Style: {opp['style']:8} | "
-                    f"Cap: ₹{opp['estimated_capital']:,.0f}"
+                    f"R:R: {opp['rr_ratio']:.1f} | Cap: ₹{opp['estimated_capital']:,.0f}"
                 )
 
             if rejected_opportunities:
@@ -1367,7 +1362,6 @@ Return only JSON like:
                     "decision": dec,
                     "direction": dec["direction"],
                     "confidence": dec.get("confidence", 0.6),
-                    "style": "intraday",
                     "rr_ratio": 1.5,
                     "estimated_capital": 10000.0,
                 })

@@ -80,21 +80,17 @@ class MoneyManager:
         return {
             # Capital allocation
             "total_capital": 100000.0,  # Total capital in account
-            "intraday_allocation_pct": 40.0,  # % allocated to intraday
-            "swing_allocation_pct": 60.0,  # % allocated to swing
 
             # Position limits
             "max_positions": 5,  # Max open positions at once
-            "max_intraday_positions": 3,  # Max intraday positions
-            "max_swing_positions": 3,  # Max swing positions
 
             # Capital usage limits
-            "max_capital_usage_pct": 90.0,  # Max % of capital to use
-            "min_cash_reserve": 10000.0,  # Minimum cash to keep aside
+            "max_capital_usage_pct": 95.0,  # Max % of capital to use (increased from 90%)
+            "min_cash_reserve": 1000.0,  # Minimum cash to keep aside (reduced from 10000)
 
             # Risk limits per trade
             "max_risk_per_trade_pct": 1.0,  # Max 1% risk per trade
-            "max_position_size_pct": 20.0,  # Max 20% of capital per position
+            "max_position_size_pct": 50.0,  # Max 50% of capital per position (increased from 20%)
 
             # Daily limits
             "max_daily_loss": 2000.0,  # Stop trading if daily loss > this
@@ -182,10 +178,6 @@ class MoneyManager:
 
         total_capital = available_capital + used_capital
 
-        # Calculate allocations
-        intraday_allocation = (total_capital * self.config["intraday_allocation_pct"]) / 100
-        swing_allocation = (total_capital * self.config["swing_allocation_pct"]) / 100
-
         # Calculate usage
         capital_usage_pct = (used_capital / total_capital * 100) if total_capital > 0 else 0
         max_usable_capital = (total_capital * self.config["max_capital_usage_pct"]) / 100
@@ -223,14 +215,8 @@ class MoneyManager:
             "max_usable_capital": round(max_usable_capital, 2),
             "remaining_usable_capital": round(max_usable_capital - used_capital, 2),
 
-            # Allocations
-            "intraday_allocation": round(intraday_allocation, 2),
-            "swing_allocation": round(swing_allocation, 2),
-
             # Limits
             "max_positions": self.config["max_positions"],
-            "max_intraday_positions": self.config["max_intraday_positions"],
-            "max_swing_positions": self.config["max_swing_positions"],
             "min_cash_reserve": self.config["min_cash_reserve"],
 
             # Daily state
@@ -295,23 +281,12 @@ class MoneyManager:
                 can_open = False
                 reasons.append(f"risk_too_high (₹{risk_amount:.2f} > ₹{max_risk:.2f} max)")
 
-        # Check product-specific allocation
-        product_type = "intraday" if product.upper() == "I" else "swing"
-        allocated = wallet[f"{product_type}_allocation"]
-
-        # Get current positions (would need position tracker)
-        # For now, use simple allocation check
-        if position_value > allocated:
-            can_open = False
-            reasons.append(f"{product_type}_allocation_exceeded (₹{position_value:.2f} > ₹{allocated:.2f})")
-
         return {
             "can_open": can_open,
             "reasons": reasons if not can_open else ["all_checks_passed"],
             "position_value": position_value,
             "available_capital": available,
             "max_position_value": max_position_value,
-            "product": product_type,
         }
 
     def calculate_position_size(

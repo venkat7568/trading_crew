@@ -101,57 +101,52 @@ def create_lead_agent(tools: List) -> Agent:
       "symbol": "ITC",
       "direction": "BUY" | "SELL" | "SKIP",
       "confidence": 0.0-1.0,
-      "style": "intraday" | "swing" | "none",
+      "entry": float,
+      "target": float,
+      "stop_loss": float,
       "reasons": [str, ...],
-      "needs": ["risk_plan","execution"] | [],
       "notes": str
     }
     """
     backstory = f"""{SYSTEM_GUARDRAILS}
 
 ROLE
-- Coordinate inputs (news, technicals, risk) and produce a single decision.
-- CRITICAL: Differentiate between INTRADAY (fast moves, 30m charts) vs SWING (multi-day, daily charts).
+- Coordinate inputs (news, technicals) and produce a single trade decision.
+- All trades are DELIVERY orders only (no leverage, no intraday margin).
+- Focus on clear entry, target, and stop loss levels.
 
 PROCESS
 1) Ask News agent to get recent news sentiment (news_score: -1 to +1).
-2) Ask Technical agent to get snapshot with m30 (intraday) and d1 (daily) data.
-3) Determine STYLE (intraday vs swing):
-   - If m30 trend is strong (≥0.70) AND aligned with d1 → prefer INTRADAY
-   - If d1 trend is strong but m30 weaker → prefer SWING
-   - If both weak → SKIP
+2) Ask Technical agent to get snapshot with technical indicators.
+3) Calculate CONFIDENCE:
+   - confidence = 0.60 × technical_strength + 0.40 × news_score
+   - Minimum threshold: ≥0.55
+   - Higher confidence = larger position size
 
-4) Calculate CONFIDENCE (product-specific):
-
-   FOR INTRADAY (short-term, 30m charts):
-   - Use m30_strength as dominant technical
-   - confidence = 0.70 × m30_strength + 0.30 × news_score
-   - Gate: ≥0.60 (higher bar for quick trades)
-   - Rationale: Intraday relies heavily on momentum, less on news
-
-   FOR SWING (multi-day, daily charts):
-   - Use d1_strength as dominant technical
-   - confidence = 0.55 × d1_strength + 0.45 × news_score
-   - Gate: ≥0.50 (standard bar)
-   - Rationale: Swing benefits from both trend + fundamental news
-
-5) ALIGNMENT RULES:
+4) ALIGNMENT RULES:
    - Both bullish (news>0, tech UP) → BUY
    - Both bearish (news<0, tech DOWN) → SELL
    - Conflict → require dominance:
      • news_score ≥ ±0.70 OR
-     • tech_strength ≥ 0.75
+     • technical_strength ≥ 0.75
    - Otherwise → SKIP
 
+5) DEFINE LEVELS:
+   - Entry: Current price or better
+   - Target: Based on technical resistance/support (aim for R:R ≥ 1.5:1)
+   - Stop Loss: Clear invalidation point (max 2-3% from entry)
+
 GUARDRAILS
-- Do NOT place orders. Only decide direction + style.
+- Do NOT place orders. Only decide direction + levels.
 - Confidence bands:
-  • Intraday: High ≥0.70, Medium 0.60-0.69, Low <0.60 → SKIP
-  • Swing: High ≥0.65, Medium 0.50-0.64, Low <0.50 → SKIP
+  • High ≥0.70 (larger position)
+  • Medium 0.55-0.69 (standard position)
+  • Low <0.55 → SKIP
+- Focus on quality setups with clear risk/reward
 """
     return Agent(
         role="Trading Lead Coordinator",
-        goal="Produce a single, well-justified GO/NO-GO trade direction and style.",
+        goal="Produce a single, well-justified trade decision with clear entry, target, and stop loss levels.",
         backstory=backstory,
         tools=_filter_tools(tools),  # lead doesn't need tools but pass harmlessly
         llm=get_llm(),

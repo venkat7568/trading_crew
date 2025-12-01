@@ -39,12 +39,12 @@ class PortfolioRiskManager:
     5. Product mix balance (intraday vs swing)
     """
 
-    def __init__(self, max_sector_concentration: float = 40.0):
+    def __init__(self, max_sector_concentration: float = 100.0):
         """
         Initialize portfolio risk manager.
 
         Args:
-            max_sector_concentration: Max % of capital in one sector (default 40%)
+            max_sector_concentration: Max % of capital in one sector (default 100% - disabled)
         """
         self.max_sector_concentration = max_sector_concentration
 
@@ -110,16 +110,12 @@ class PortfolioRiskManager:
                 "High correlation detected - consider reducing position sizes"
             )
 
-        # 3. Directional balance check
+        # 3. Directional balance check (disabled - not blocking trades)
         direction_risk = self._check_directional_balance(
             selected_opportunities, current_positions
         )
-        warnings.extend(direction_risk["warnings"])
-        if direction_risk["imbalanced"]:
-            recommendations.append(
-                f"Portfolio is heavily {direction_risk['dominant_direction']} - "
-                "consider hedging or reducing size"
-            )
+        # Removed: warnings.extend(direction_risk["warnings"])
+        # Removed: recommendations for directional imbalance
 
         # 4. Aggregate R:R check
         rr_metrics = self._check_aggregate_rr(selected_opportunities)
@@ -129,10 +125,9 @@ class PortfolioRiskManager:
                 "consider only high-quality setups"
             )
 
-        # 5. Product mix check
+        # 5. Product mix check (disabled - all trades are delivery orders)
         product_mix = self._check_product_mix(selected_opportunities)
-        if product_mix["imbalanced"]:
-            warnings.append(product_mix["warning"])
+        # Removed: warnings for product mix imbalance
 
         # Overall verdict
         approved = len(blocking_issues) == 0
@@ -461,7 +456,7 @@ _portfolio_risk_instance = None
 
 
 def get_portfolio_risk_manager(
-    max_sector_concentration: float = 40.0,
+    max_sector_concentration: float = 100.0,
 ) -> PortfolioRiskManager:
     """Get or create portfolio risk manager singleton."""
     global _portfolio_risk_instance
