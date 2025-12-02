@@ -117,6 +117,7 @@ class TradingCrew:
         min_confidence_gate: Optional[float] = None,
         crew_verbose: bool = None,
     ):
+        self.mode = "live"  # Always live mode - backtesting removed
         self.today = datetime.now(IST).strftime("%Y-%m-%d")
         self.live = bool(live)
         self.wait_for_open = bool(wait_for_open)
