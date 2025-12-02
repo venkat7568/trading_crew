@@ -112,15 +112,12 @@ class TradingCrew:
 
     def __init__(
         self,
-        mode: str = "live",
-        today: Optional[str] = None,
         live: bool = False,
         wait_for_open: bool = False,
         min_confidence_gate: Optional[float] = None,
         crew_verbose: bool = None,
     ):
-        self.mode = mode
-        self.today = today or datetime.now(IST).strftime("%Y-%m-%d")
+        self.today = datetime.now(IST).strftime("%Y-%m-%d")
         self.live = bool(live)
         self.wait_for_open = bool(wait_for_open)
         self.min_confidence_gate = min_confidence_gate
@@ -821,7 +818,28 @@ Return ONLY this JSON (NO arrays, NO nested objects):
                 "error": str(e),
             }
 
-        # 3) Ask Risk agent for a plan
+        # 3) FETCH REAL FUNDS FIRST - Don't trust agent to call tools reliably!
+        try:
+            real_funds = self.operator.get_funds()
+            real_available = float((real_funds.get("equity") or {}).get("available_margin", 0) or 0)
+            if real_available <= 0:
+                logger.warning("⚠️ No available funds! Cannot trade. Funds: %s", real_funds)
+                return {
+                    "decision": "SKIP",
+                    "symbol": symbol,
+                    "reason": "no_available_funds",
+                    "available_funds": real_available,
+                }
+        except Exception as e:
+            logger.exception("Failed to fetch real funds from Upstox")
+            return {
+                "decision": "SKIP",
+                "symbol": symbol,
+                "reason": "funds_fetch_failed",
+                "error": str(e),
+            }
+
+        # 4) Ask Risk agent for a plan
         risk_desc = _tmpl(
             """Build position plan for $symbol.
 
@@ -829,14 +847,25 @@ Inputs:
 - Direction: $direction
 - Confidence: $confidence
 - Technical Snapshot: $snapshot
+- REAL AVAILABLE FUNDS (from Upstox account): ₹$available_funds
 
-CRITICAL INSTRUCTIONS:
-1) Call get_funds_tool FIRST to get ACTUAL available capital (do NOT assume or hallucinate amounts)
+⚠️ CRITICAL - YOU MUST USE THE REAL FUNDS PROVIDED ABOVE!
+The available funds shown above (₹$available_funds) is fetched from your LIVE Upstox account.
+DO NOT make up, assume, or hallucinate any other amount!
+YOU MUST USE: available_funds = $available_funds
+
+INSTRUCTIONS:
+1) Use EXACTLY ₹$available_funds as your available_funds (DO NOT call get_funds_tool, value already provided!)
 2) Use current_price from snapshot as entry price
 3) Calculate stop_loss from ATR:
    - For intraday: stop_loss = entry × (1 - atr_pct/100 × 0.9) for BUY
    - For swing: stop_loss = entry × (1 - atr_pct/100 × 1.8) for BUY
-4) Call calculate_max_quantity_tool with the ACTUAL available_margin from step 1
+4) Call calculate_max_quantity_tool with:
+   - symbol: $symbol
+   - price: entry price from snapshot
+   - product: "D" (delivery)
+   - risk_pct: 0.5 to 1.0 (based on confidence)
+   - stop_loss: calculated stop loss
 5) Calculate target for minimum R:R:
    - Intraday: target = entry + (entry - stop_loss) × 1.3
    - Swing: target = entry + (entry - stop_loss) × 1.6
@@ -847,14 +876,18 @@ REQUIRED OUTPUT FORMAT (must be flat, all fields at root level):
   "symbol": "$symbol",
   "direction": "$direction",
   "side": "$direction",
-  "style": "intraday",
-  "product": "I",
+  "style": "swing",
+  "product": "D",
   "qty": <integer from calculate_max_quantity_tool>,
   "entry": <float from snapshot>,
   "stop_loss": <float calculated above>,
   "target": <float calculated above>,
   "order_type": "MARKET",
   "rr_ratio": <float>,
+  "available_funds": $available_funds,
+  "capital_required": <qty × entry>,
+  "capital_remaining": <$available_funds - capital_required>,
+  "expected_net_profit": <(target - entry) × qty - estimated_charges>,
   "rationale": "Brief 1-line explanation"
 }
 
@@ -862,12 +895,14 @@ IMPORTANT:
 - Do NOT nest inside "final_choice", "plan", "intraday", or "swing" keys
 - Do NOT include alternative plans in the response
 - If qty < 1 → return {"decision":"SKIP","reason":"insufficient_capital"}
-- Use get_funds_tool to get real available margin (not hardcoded values!)
+- ALWAYS use product="D" (delivery only, no intraday)
+- You MUST use available_funds = $available_funds (the REAL value from Upstox)
 """,
             symbol=symbol,
             direction=direction,
             confidence=f"{confidence:.3f}",
             snapshot=tech_snap,
+            available_funds=f"{real_available:.2f}",
         )
 
         risk_task = Task(
@@ -1711,8 +1746,6 @@ if __name__ == "__main__":
     import argparse
 
     ap = argparse.ArgumentParser(description="Trading Crew Orchestrator")
-    ap.add_argument("--mode", default="live", choices=["live", "backtest"])
-    ap.add_argument("--today", default=None)
     ap.add_argument("--live", type=int, default=0)
     ap.add_argument("--wait-open", action="store_true")
     ap.add_argument("--min-confidence", type=float, default=None)
@@ -1720,8 +1753,6 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     crew = TradingCrew(
-        mode=args.mode,
-        today=args.today,
         live=bool(args.live),
         wait_for_open=args.wait_open,
         min_confidence_gate=args.min_confidence,
