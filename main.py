@@ -531,6 +531,73 @@ def discover_and_validate_symbols(mode, date, max_symbols=20):
 
         return True
 
+    def _is_tradable_stock(sym: str, instrument_key: str) -> tuple[bool, str]:
+        """
+        Verify stock is actually tradable by checking price, volume, and liquidity.
+
+        Returns: (is_tradable: bool, reason: str)
+        """
+        try:
+            # Fetch technical snapshot to check tradability
+            snapshot = tech_client.snapshot(sym, days=2)
+
+            if not snapshot:
+                return False, "no_snapshot_data"
+
+            # Check 1: Valid current price (must be > ₹1)
+            current_price = snapshot.get("current_price")
+            if current_price is None or current_price == 0:
+                return False, f"zero_price (price={current_price})"
+
+            current_price = float(current_price)
+            if current_price < 1.0:
+                return False, f"price_too_low (₹{current_price:.2f})"
+
+            # Check 2: Recent candle data exists (stock is trading)
+            candles = snapshot.get("candles", [])
+            if not candles or len(candles) == 0:
+                return False, "no_candle_data"
+
+            # Check 3: Latest candle has valid OHLC data
+            latest_candle = candles[0]
+            if not latest_candle:
+                return False, "invalid_latest_candle"
+
+            open_price = latest_candle.get("open", 0)
+            high_price = latest_candle.get("high", 0)
+            low_price = latest_candle.get("low", 0)
+            close_price = latest_candle.get("close", 0)
+
+            # All OHLC values must be > 0
+            if not all([open_price > 0, high_price > 0, low_price > 0, close_price > 0]):
+                return False, f"invalid_ohlc (O:{open_price}, H:{high_price}, L:{low_price}, C:{close_price})"
+
+            # Check 4: Recent trading volume (at least some volume in last candle)
+            latest_volume = latest_candle.get("volume")
+            if latest_volume is None or latest_volume == 0:
+                return False, "zero_volume"
+
+            # Check 5: Price movement sanity check (high >= low, reasonable spread)
+            if high_price < low_price:
+                return False, "invalid_high_low"
+
+            price_range = high_price - low_price
+            if price_range == 0:
+                # No price movement at all - likely suspended or not trading
+                return False, "no_price_movement"
+
+            # Check 6: Price source validation
+            price_source = snapshot.get("price_source", "")
+            if price_source == "unavailable":
+                return False, "price_unavailable"
+
+            # All checks passed
+            return True, f"tradable (₹{current_price:.2f}, vol={latest_volume})"
+
+        except Exception as e:
+            # If we can't fetch data, treat as untradable
+            return False, f"validation_error: {str(e)}"
+
     for item in news_data:
         hints = _hint_strings(item)
         for hint in hints:
@@ -552,7 +619,13 @@ def discover_and_validate_symbols(mode, date, max_symbols=20):
 
             # Validate symbol format
             if not _is_valid_symbol(sym):
-                emit_status(f"⚠️ Skipping invalid symbol: {sym}")
+                emit_status(f"⚠️ Skipping invalid symbol format: {sym}")
+                continue
+
+            # CRITICAL: Validate stock is actually tradable (has price, volume, liquidity)
+            is_tradable, reason = _is_tradable_stock(sym, ik)
+            if not is_tradable:
+                emit_status(f"⚠️ Skipping {sym}: {reason}")
                 continue
 
             seen_ik.add(ik)
@@ -563,7 +636,7 @@ def discover_and_validate_symbols(mode, date, max_symbols=20):
                 "instrument_key": ik,
                 "source": hint
             })
-            emit_status(f"✅ From news: {hint} → {sym} ({name})")
+            emit_status(f"✅ From news: {hint} → {sym} ({name}) - {reason}")
 
             if len(validated) >= max_symbols:
                 break
@@ -593,17 +666,28 @@ def discover_and_validate_symbols(mode, date, max_symbols=20):
                 if ik in seen_ik:
                     continue
 
+                resolved_sym = row.get("symbol") or sym
+                resolved_name = row.get("name") or sym
+
+                # CRITICAL: Validate fallback stock is also tradable
+                is_tradable, reason = _is_tradable_stock(resolved_sym, ik)
+                if not is_tradable:
+                    emit_status(f"⚠️ Skipping fallback {resolved_sym}: {reason}")
+                    continue
+
                 seen_ik.add(ik)
                 validated.append({
-                    "symbol": row.get("symbol") or sym,
-                    "name": row.get("name") or sym,
+                    "symbol": resolved_sym,
+                    "name": resolved_name,
                     "instrument_key": ik,
                     "source": "fallback"
                 })
+                emit_status(f"✅ Fallback: {resolved_sym} - {reason}")
 
                 if len(validated) >= max_symbols:
                     break
-            except Exception:
+            except Exception as e:
+                emit_status(f"⚠️ Fallback error for {sym}: {str(e)}")
                 continue
 
         if validated:
