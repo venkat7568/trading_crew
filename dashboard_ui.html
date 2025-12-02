@@ -148,28 +148,6 @@
                     </div>
                 </div>
             </div>
-
-            <div class="card">
-                <h3>📄 Paper Money (Simulated)</h3>
-                <div class="wallet-card">
-                    <div class="wallet-type">Backtest Capital</div>
-                    <div class="wallet-amount" id="paper-balance">₹100,000</div>
-                    <div class="wallet-details">
-                        <div class="wallet-detail-row">
-                            <span>Available:</span>
-                            <span id="paper-available">₹100,000</span>
-                        </div>
-                        <div class="wallet-detail-row">
-                            <span>Used:</span>
-                            <span id="paper-used">₹0</span>
-                        </div>
-                        <div class="wallet-detail-row">
-                            <span>Today's P&L:</span>
-                            <span id="paper-pnl" class="neutral">₹0</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
         </div>
 
         <!-- Companies Being Analyzed -->
@@ -208,19 +186,6 @@
         <div class="card">
             <h2>⚙️ Trading Controls</h2>
             <div class="controls">
-                <div class="form-group">
-                    <label>Mode</label>
-                    <select id="mode">
-                        <option value="live">Live Trading</option>
-                        <option value="backtest">Backtest</option>
-                    </select>
-                </div>
-
-                <div class="form-group" id="date-group" style="display: none;">
-                    <label>Backtest Date</label>
-                    <input type="date" id="backtest-date">
-                </div>
-
                 <div class="form-group">
                     <label>Execute Orders</label>
                     <select id="live-mode">
@@ -267,21 +232,12 @@
 
     <script>
         let eventSource = null;
-        let currentMode = 'backtest';
         let isLive = false;
 
         // Initialize
-        document.getElementById('mode').addEventListener('change', function() {
-            currentMode = this.value;
-            const dateGroup = document.getElementById('date-group');
-            dateGroup.style.display = currentMode === 'backtest' ? 'block' : 'none';
-        });
-
         document.getElementById('live-mode').addEventListener('change', function() {
             isLive = this.value === 'true';
         });
-
-        document.getElementById('backtest-date').value = new Date().toISOString().split('T')[0];
 
         function addActivity(text) {
             const feed = document.getElementById('activity-feed');
@@ -370,20 +326,6 @@
         }
 
         function updateWallet(data) {
-            // Paper money
-            const paperBalance = data.total_capital || 100000;
-            const paperAvailable = data.available_capital || paperBalance;
-            const paperUsed = data.used_capital || 0;
-            const paperPnl = data.daily_pnl || 0;
-
-            document.getElementById('paper-balance').textContent = '₹' + paperBalance.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-            document.getElementById('paper-available').textContent = '₹' + paperAvailable.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-            document.getElementById('paper-used').textContent = '₹' + paperUsed.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-
-            const paperPnlElem = document.getElementById('paper-pnl');
-            paperPnlElem.textContent = '₹' + paperPnl.toLocaleString('en-IN', { maximumFractionDigits: 2 });
-            paperPnlElem.className = paperPnl > 0 ? 'positive' : paperPnl < 0 ? 'negative' : 'neutral';
-
             // Daily P&L (top metric)
             const dailyPnlElem = document.getElementById('daily-pnl');
             const pnl = isLive ? 0 : paperPnl; // Use paper PNL for now
@@ -516,8 +458,6 @@
         }
 
         async function startTrading() {
-            const mode = document.getElementById('mode').value;
-            const date = document.getElementById('backtest-date').value;
             const live = document.getElementById('live-mode').value === 'true';
             const maxSymbols = parseInt(document.getElementById('max-symbols').value) || 20;
             const learningMode = document.getElementById('learning-mode').value === 'true';
@@ -527,19 +467,18 @@
             document.getElementById('btn-start').disabled = true;
             document.getElementById('btn-stop').disabled = false;
 
-            currentMode = mode;
             isLive = live;
 
-            document.getElementById('mode-display').textContent = (mode === 'live' ? 'Live' : 'Backtest') + ' - ' + (live ? 'Real Money ⚠️' : 'Paper');
+            document.getElementById('mode-display').textContent = 'Live - ' + (live ? 'Real Money ⚠️' : 'Paper');
 
-            addActivity('🚀 Starting... Mode: ' + mode + ', Live: ' + (live ? 'YES ⚠️' : 'Paper'));
+            addActivity('🚀 Starting... Live: ' + (live ? 'YES ⚠️' : 'Paper'));
             addActivity('📊 Max symbols: ' + maxSymbols + ', Learning: ' + (learningMode ? 'ON 🧠' : 'OFF'));
 
             try {
                 const resp = await fetch('/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ mode, date, live, max_symbols: maxSymbols, learning_mode: learningMode })
+                    body: JSON.stringify({ mode: 'live', live, max_symbols: maxSymbols, learning_mode: learningMode })
                 });
                 const result = await resp.json();
                 if (result.status === 'ok') {

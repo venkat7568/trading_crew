@@ -426,7 +426,7 @@ def _crew_status_to_text(payload: dict) -> str:
     return f"ℹ️ {event}"
 
 # ---------- NEW: pure news-based discovery using UpstoxTechnicalClient.resolve ----------
-def discover_and_validate_symbols(mode, date, max_symbols=20):
+def discover_and_validate_symbols(max_symbols=20):
     """
     Discover tradable NSE/BSE symbols purely from latest news.
     No static TRADING_SYMBOLS. We:
@@ -444,12 +444,9 @@ def discover_and_validate_symbols(mode, date, max_symbols=20):
     news_client = NewsClient()
     tech_client = UpstoxTechnicalClient()
 
-    today_param = date if (mode == "backtest" and date) else None
     news_data = news_client.get_recent_news_and_calls(
-        today=today_param,
         lookback_days=2,
         max_items=50,
-        mode=mode,
         compact=True
     )
 
@@ -699,16 +696,16 @@ def discover_and_validate_symbols(mode, date, max_symbols=20):
 
     return validated
 
-def trading_loop(mode, date, live, max_symbols=20, learning_mode=True):
+def trading_loop(live, max_symbols=20, learning_mode=True):
     global trading_active, current_companies_data
     try:
         trading_active = True
-        emit_status(f"🚀 Trading system started (mode={mode}, date={date}, live={'🔴 LIVE' if live else '📝 PAPER'})")
+        emit_status(f"🚀 Trading system started (live={'🔴 LIVE' if live else '📝 PAPER'})")
         emit_status(f"⚙️ Settings: max_symbols={max_symbols}, learning={'ON' if learning_mode else 'OFF'}")
         emit_status(f"🧠 Using AI: 4-Phase Intelligent System (Parallel Analysis → Ranking → Risk Validation → Execution)")
 
         operator = UpstoxOperator() if UpstoxOperator else None
-        if mode == "live" and operator:
+        if operator:
             try:
                 status = operator.market_session_status()
                 if not status.get("open"):
@@ -720,13 +717,13 @@ def trading_loop(mode, date, live, max_symbols=20, learning_mode=True):
             except Exception as e:
                 emit_status(f"⚠️ Market status error: {e}")
 
-        validated_symbols = discover_and_validate_symbols(mode, date, max_symbols)
+        validated_symbols = discover_and_validate_symbols(max_symbols)
         if not validated_symbols:
             emit_status("❌ No valid symbols to trade")
             return
 
         emit_status("🧠 Initializing AI agents...")
-        crew = TradingCrew(mode=mode, today=date, live=live)
+        crew = TradingCrew(live=live)
 
         def _cb(payload: dict):
             try:
@@ -842,12 +839,10 @@ def start_trading():
     if trading_active:
         return jsonify({"status": "error", "message": "Already running"})
     data = request.json or {}
-    mode = data.get("mode", "live")
-    date = data.get("date")
     live = bool(data.get("live", False))
     max_symbols = int(data.get("max_symbols", 20))
     learning_mode = bool(data.get("learning_mode", True))
-    threading.Thread(target=trading_loop, args=(mode, date, live, max_symbols, learning_mode), daemon=True).start()
+    threading.Thread(target=trading_loop, args=(live, max_symbols, learning_mode), daemon=True).start()
     return jsonify({"status": "ok"})
 
 @app.route("/stop", methods=["POST"])
@@ -861,7 +856,7 @@ def run_learning():
     """Run learning analysis on recent trades."""
     try:
         emit_status("🎓 Starting learning analysis...")
-        crew = TradingCrew(mode="backtest", live=False)
+        crew = TradingCrew(live=False)
         learning_result = crew.run_learning_mode(days=30)
 
         insights = learning_result.get("summary", "Analysis complete")
