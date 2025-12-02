@@ -553,9 +553,19 @@ def get_funds_tool(input_str: Optional[str] = None, **kw) -> str:
     """
     try:
         funds = OP.get_funds()
-        logger.info(
-            "get_funds_tool: available_margin=%s",
-            (funds.get("equity") or {}).get("available_margin", 0)
+        equity = funds.get("equity") or {}
+        available = equity.get("available_margin", 0)
+        used = equity.get("used_margin", 0)
+        total = equity.get("total_margin", 0)
+
+        # Enhanced logging for debugging funds issues
+        logger.warning(
+            "💰 FUNDS FETCHED FROM UPSTOX API:\n"
+            "   Available Margin: ₹%.2f\n"
+            "   Used Margin: ₹%.2f\n"
+            "   Total Margin: ₹%.2f\n"
+            "   Full Response: %s",
+            available, used, total, funds
         )
         return _json_ok(funds=funds)
     except Exception as e:

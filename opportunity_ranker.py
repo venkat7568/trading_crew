@@ -144,6 +144,19 @@ class OpportunityRanker:
         logger.info(f"   ✅ Selected {len(selected)} opportunities (rejected {len(rejected)})")
         logger.info(f"   💰 Capital usage: ₹{used_capital:,.2f} / ₹{available_capital:,.2f}")
 
+        # Log top selections with profit metrics for transparency
+        if selected:
+            logger.info("   📊 Top Selections (ranked by confidence × profit-efficiency):")
+            for i, opp in enumerate(selected[:5], 1):  # Show top 5
+                roi_pct = opp.get('profit_per_capital', 0) * 100
+                logger.info(
+                    f"      #{i} {opp['symbol']}: "
+                    f"conf={opp['confidence']:.2f}, "
+                    f"capital=₹{opp['estimated_capital']:,.0f}, "
+                    f"profit=₹{opp.get('expected_net_profit', 0):,.0f} "
+                    f"(ROI={roi_pct:.2f}%)"
+                )
+
         return {
             "selected_opportunities": selected,
             "rejected_opportunities": rejected,
@@ -228,16 +241,38 @@ class OpportunityRanker:
             symbol_history_score * 0.10
         )
 
-        # Capital efficiency adjustment
-        # Better setups with lower capital requirement get bonus
-        estimated_capital = self._estimate_capital_required(decision)
-        capital_efficiency = 1.0
-        if estimated_capital > 0:
-            # Expected profit vs capital required
-            expected_profit = estimated_capital * (rr_ratio * 0.01)  # Rough estimate
-            capital_efficiency = min(expected_profit / max(estimated_capital, 1000), 2.0)
+        # Capital efficiency adjustment - CRITICAL for profit optimization
+        # We want to maximize PROFIT PER UNIT OF CAPITAL, not just confidence
+        # Example: ₹200 stock with ₹8K capital and ₹400 profit (5% ROI) beats
+        #          ₹6,279 stock with ₹345K capital and ₹2K profit (0.58% ROI)
+
+        # Extract actual profit and capital data from decision
+        expected_net_profit = float(decision.get("expected_net_profit", 0))
+        capital_required = float(decision.get("capital_required", 0))
+
+        # If risk agent hasn't calculated these yet, estimate them
+        if capital_required <= 0:
+            capital_required = self._estimate_capital_required(decision)
+
+        if expected_net_profit <= 0 and capital_required > 0:
+            # Rough estimate: use R:R ratio and assume 1% risk
+            risk_amount = capital_required * 0.01
+            expected_net_profit = risk_amount * rr_ratio
+
+        # Calculate profit efficiency (ROI potential)
+        profit_per_capital = 0.0
+        if capital_required > 0 and expected_net_profit > 0:
+            profit_per_capital = expected_net_profit / capital_required
+
+        # Capital efficiency multiplier:
+        # - 5% ROI (0.05) → 1.5x boost
+        # - 10% ROI (0.10) → 2.0x boost
+        # - 2% ROI (0.02) → 1.2x boost
+        # Cap at 3.0x to prevent extreme outliers
+        capital_efficiency = 1.0 + min(profit_per_capital * 10.0, 2.0)
 
         # Composite score (opportunity score × capital efficiency)
+        # This ensures we select stocks that balance BOTH confidence AND profit potential
         composite_score = opportunity_score * capital_efficiency
 
         return {
@@ -250,7 +285,9 @@ class OpportunityRanker:
             "entry_quality": entry_quality,
             "style": style,
             "direction": direction,
-            "estimated_capital": estimated_capital,
+            "estimated_capital": capital_required,  # Use actual capital_required
+            "expected_net_profit": expected_net_profit,
+            "profit_per_capital": profit_per_capital,
             "components": {
                 "confidence": confidence_score,
                 "rr": rr_score,
@@ -258,6 +295,7 @@ class OpportunityRanker:
                 "market_alignment": market_alignment_score,
                 "symbol_history": symbol_history_score,
                 "capital_efficiency": capital_efficiency,
+                "profit_per_capital": profit_per_capital,
             },
             "valid": True,
         }
@@ -382,7 +420,9 @@ class OpportunityRanker:
             logger.debug(
                 f"   ✅ {opp['symbol']}: score={opp['composite_score']:.3f}, "
                 f"conf={opp['confidence']:.2f}, R:R={opp['rr_ratio']:.1f}, "
-                f"capital=₹{estimated_capital:.0f}"
+                f"capital=₹{estimated_capital:.0f}, "
+                f"profit=₹{opp.get('expected_net_profit', 0):.0f}, "
+                f"ROI={opp.get('profit_per_capital', 0)*100:.2f}%"
             )
 
         return selected, rejected, used_capital
